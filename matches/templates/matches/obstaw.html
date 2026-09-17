@@ -1,0 +1,1453 @@
+<!DOCTYPE html>
+<html lang="pl">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Obstaw - MATCH50</title>
+
+
+    <style>
+
+        * {
+            box-sizing: border-box;
+        }
+
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f5f6f8;
+            color: #222;
+        }
+
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+
+        /* =========================
+           HEADER
+        ========================= */
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+
+
+        .logo {
+            font-size: 28px;
+            font-weight: 700;
+        }
+
+
+        nav {
+            display: flex;
+            align-items: center;
+        }
+
+
+        nav a {
+            color: #222;
+            text-decoration: none;
+            margin-left: 20px;
+        }
+
+
+        nav a:hover {
+            text-decoration: underline;
+        }
+
+
+        /* =========================
+           USER MENU
+        ========================= */
+
+        .user-menu {
+            position: relative;
+            margin-left: 20px;
+        }
+
+
+        .user-button {
+            border: none;
+            background: none;
+            padding: 6px 8px;
+            font-family: inherit;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            border-radius: 8px;
+        }
+
+
+        .user-button:hover {
+            background: #e9eaed;
+        }
+
+
+        .user-arrow {
+            font-size: 11px;
+            margin-left: 4px;
+        }
+
+
+        .user-dropdown {
+            display: none;
+
+            position: absolute;
+
+            top: calc(100% + 8px);
+            right: 0;
+
+            width: 190px;
+
+            background: white;
+
+            border-radius: 10px;
+
+            padding: 6px;
+
+            box-shadow:
+                0 4px 18px rgba(0, 0, 0, 0.12);
+
+            z-index: 100;
+        }
+
+
+        .user-dropdown.open {
+            display: block;
+        }
+
+
+        .user-dropdown a,
+        .user-dropdown button {
+            display: block;
+
+            width: 100%;
+
+            padding: 10px 12px;
+
+            border: none;
+
+            border-radius: 7px;
+
+            background: none;
+
+            color: #222;
+
+            text-align: left;
+
+            text-decoration: none;
+
+            font-family: inherit;
+
+            font-size: 14px;
+
+            cursor: pointer;
+
+            margin: 0;
+        }
+
+
+        .user-dropdown a:hover,
+        .user-dropdown button:hover {
+            background: #f1f2f4;
+        }
+
+
+        .dropdown-divider {
+            height: 1px;
+            background: #e5e5e5;
+            margin: 5px 0;
+        }
+
+
+        .logout-button {
+            color: #b91c1c !important;
+        }
+
+
+        .login-link {
+            color: #222;
+            text-decoration: none;
+            margin-left: 20px;
+        }
+
+
+        .login-link:hover {
+            text-decoration: underline;
+        }
+
+
+        /* =========================
+           CONTENT
+        ========================= */
+
+        h1 {
+            margin-bottom: 8px;
+        }
+
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 25px;
+        }
+
+
+        /* =========================
+           MATCH
+        ========================= */
+
+        .match {
+            background: white;
+            border-radius: 12px;
+            padding: 18px 20px;
+            margin-bottom: 12px;
+
+            box-shadow:
+                0 1px 4px rgba(0, 0, 0, 0.08);
+        }
+
+
+        .league {
+            font-size: 13px;
+            color: #777;
+            margin-bottom: 12px;
+        }
+
+
+        .match-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+        }
+
+
+        .team {
+            flex: 1;
+            font-size: 17px;
+            font-weight: 600;
+        }
+
+
+        .team-away {
+            text-align: right;
+        }
+
+
+        /* =========================
+           PREDICTION BUTTONS
+        ========================= */
+
+        .prediction-buttons {
+            display: flex;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+
+        .prediction-button {
+            width: 48px;
+            height: 42px;
+
+            border: 1px solid #ccc;
+            border-radius: 8px;
+
+            background: white;
+
+            font-size: 16px;
+            font-weight: 600;
+
+            cursor: pointer;
+
+            transition: 0.15s;
+        }
+
+
+        .prediction-button:hover {
+            border-color: #222;
+        }
+
+
+        .prediction-button.saved {
+            background: #16a34a;
+            color: white;
+            border-color: #16a34a;
+        }
+
+
+        .prediction-button.selected {
+            background: #222;
+            color: white;
+            border-color: #222;
+        }
+
+
+        /* =========================
+           SAVE BUTTON
+        ========================= */
+
+        .save-button {
+            width: 100%;
+
+            margin-top: 20px;
+
+            padding: 15px;
+
+            border: none;
+            border-radius: 10px;
+
+            background: #16a34a;
+
+            color: white;
+
+            font-size: 17px;
+            font-weight: 600;
+
+            cursor: pointer;
+        }
+
+
+        .save-button:hover {
+            background: #15803d;
+        }
+
+
+        /* =========================
+           COUNTER
+        ========================= */
+
+        .counter {
+            margin-top: 15px;
+
+            text-align: center;
+
+            color: #666;
+        }
+
+
+        /* =========================
+           LOGIN MODAL
+        ========================= */
+
+        .modal-overlay {
+            display: none;
+
+            position: fixed;
+
+            inset: 0;
+
+            background: rgba(0, 0, 0, 0.45);
+
+            align-items: center;
+
+            justify-content: center;
+
+            padding: 20px;
+
+            z-index: 1000;
+        }
+
+
+        .modal-overlay.open {
+            display: flex;
+        }
+
+
+        .modal {
+            width: 100%;
+
+            max-width: 400px;
+
+            background: white;
+
+            border-radius: 16px;
+
+            padding: 30px;
+
+            box-shadow:
+                0 10px 40px rgba(0, 0, 0, 0.2);
+
+            position: relative;
+
+            text-align: center;
+
+            animation: modalAppear 0.15s ease-out;
+        }
+
+
+        @keyframes modalAppear {
+
+            from {
+                opacity: 0;
+                transform: translateY(8px) scale(0.98);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+
+        }
+
+
+        .modal-close {
+            position: absolute;
+
+            top: 12px;
+            right: 14px;
+
+            width: 32px;
+            height: 32px;
+
+            border: none;
+
+            background: none;
+
+            font-size: 24px;
+
+            color: #777;
+
+            cursor: pointer;
+
+            border-radius: 50%;
+        }
+
+
+        .modal-close:hover {
+            background: #f1f2f4;
+            color: #222;
+        }
+
+
+        .modal-icon {
+            font-size: 38px;
+
+            margin-bottom: 10px;
+        }
+
+
+        .modal h2 {
+            margin: 0 0 10px;
+
+            font-size: 24px;
+        }
+
+
+        .modal p {
+            margin: 0 0 24px;
+
+            color: #666;
+
+            line-height: 1.5;
+
+            font-size: 15px;
+        }
+
+
+        .modal-button {
+            display: block;
+
+            width: 100%;
+
+            padding: 13px;
+
+            border-radius: 9px;
+
+            font-family: inherit;
+
+            font-size: 15px;
+
+            font-weight: 600;
+
+            cursor: pointer;
+
+            text-decoration: none;
+        }
+
+
+        .modal-login {
+            background: #16a34a;
+
+            color: white;
+
+            border: none;
+        }
+
+
+        .modal-login:hover {
+            background: #15803d;
+        }
+
+
+        .modal-register {
+            margin-top: 8px;
+
+            background: #f1f2f4;
+
+            color: #222;
+
+            border: none;
+        }
+
+
+        .modal-register:hover {
+            background: #e5e7eb;
+        }
+
+
+        /* =========================
+           MOBILE
+        ========================= */
+
+        @media (max-width: 600px) {
+
+            .container {
+                padding: 15px;
+            }
+
+
+            header {
+                flex-direction: column;
+
+                align-items: flex-start;
+
+                gap: 12px;
+            }
+
+
+            nav {
+                flex-wrap: wrap;
+
+                gap: 8px;
+            }
+
+
+            nav a {
+                margin-left: 0;
+
+                margin-right: 5px;
+            }
+
+
+            .user-menu {
+                margin-left: 0;
+            }
+
+
+            .user-dropdown {
+                left: 0;
+                right: auto;
+            }
+
+
+            .match {
+                padding: 15px;
+            }
+
+
+            .match-content {
+                gap: 10px;
+            }
+
+
+            .team {
+                font-size: 15px;
+            }
+
+
+            .prediction-button {
+                width: 42px;
+                height: 40px;
+            }
+
+
+            .modal {
+                padding: 28px 22px;
+            }
+
+        }
+
+    </style>
+
+</head>
+
+
+<body>
+
+
+<div class="container">
+
+
+    <!-- =========================
+         HEADER
+    ========================== -->
+
+
+    <header>
+
+
+        <div class="logo">
+            MATCH50 ⚽
+        </div>
+
+
+        <nav>
+
+
+            <a href="/">
+                Strona główna
+            </a>
+
+
+            <a href="/obstaw/">
+                Obstaw
+            </a>
+
+
+            {% if user.is_authenticated %}
+
+
+                <div class="user-menu">
+
+
+                    <button
+                        type="button"
+                        class="user-button"
+                        onclick="toggleUserMenu()"
+                    >
+
+                        👤 {{ user.username }}
+
+                        <span class="user-arrow">
+                            ▼
+                        </span>
+
+                    </button>
+
+
+                    <div
+                        id="user-dropdown"
+                        class="user-dropdown"
+                    >
+
+
+                        <a href="#">
+                            👤 Mój profil
+                        </a>
+
+
+                        <a href="#">
+                            🏆 Moje wyniki
+                        </a>
+
+
+                        <a href="#">
+                            📊 Ranking
+                        </a>
+
+
+                        <a href="#">
+                            ⚙️ Ustawienia
+                        </a>
+
+
+                        <div class="dropdown-divider"></div>
+
+
+                        <form
+                            method="post"
+                            action="{% url 'logout' %}"
+                        >
+
+                            {% csrf_token %}
+
+
+                            <button
+                                type="submit"
+                                class="logout-button"
+                            >
+                                🚪 Wyloguj
+                            </button>
+
+                        </form>
+
+
+                    </div>
+
+
+                </div>
+
+
+            {% else %}
+
+
+                <a
+                    href="{% url 'login' %}"
+                    class="login-link"
+                >
+                    Zaloguj się
+                </a>
+
+
+            {% endif %}
+
+
+        </nav>
+
+
+    </header>
+
+
+    <!-- =========================
+         MAIN
+    ========================== -->
+
+
+    <main>
+
+
+        <h1>
+            Obstaw mecze
+        </h1>
+
+
+        {% if user.is_authenticated %}
+
+            <div class="subtitle">
+                Wybierz wynik każdego spotkania.
+            </div>
+
+        {% else %}
+
+            <div class="subtitle">
+                Wybierz wynik każdego spotkania.
+                <strong>
+                    Zaloguj się, aby zapisać swoje typy.
+                </strong>
+            </div>
+
+        {% endif %}
+
+
+        <form method="post">
+
+
+            {% csrf_token %}
+
+
+            <div id="matches">
+
+
+                {% for match in matches %}
+
+
+                <div class="match">
+
+
+                    <div class="league">
+                        {{ match.league }}
+                    </div>
+
+
+                    <div class="match-content">
+
+
+                        <div class="team">
+                            {{ match.home_team }}
+                        </div>
+
+
+                        <div class="prediction-buttons">
+
+
+                            {% if user.is_authenticated %}
+
+
+                                <button
+                                    type="button"
+                                    class="prediction-button {% if match.saved_prediction == '1' %}saved{% endif %}"
+                                    data-match="{{ match.id }}"
+                                    data-prediction="1"
+                                    data-saved="{{ match.saved_prediction|default:'' }}"
+                                    onclick="selectPrediction(this)"
+                                >
+                                    1
+                                </button>
+
+
+                                <button
+                                    type="button"
+                                    class="prediction-button {% if match.saved_prediction == 'X' %}saved{% endif %}"
+                                    data-match="{{ match.id }}"
+                                    data-prediction="X"
+                                    data-saved="{{ match.saved_prediction|default:'' }}"
+                                    onclick="selectPrediction(this)"
+                                >
+                                    X
+                                </button>
+
+
+                                <button
+                                    type="button"
+                                    class="prediction-button {% if match.saved_prediction == '2' %}saved{% endif %}"
+                                    data-match="{{ match.id }}"
+                                    data-prediction="2"
+                                    data-saved="{{ match.saved_prediction|default:'' }}"
+                                    onclick="selectPrediction(this)"
+                                >
+                                    2
+                                </button>
+
+
+                            {% else %}
+
+
+                                <button
+                                    type="button"
+                                    class="prediction-button"
+                                    onclick="openLoginModal()"
+                                >
+                                    1
+                                </button>
+
+
+                                <button
+                                    type="button"
+                                    class="prediction-button"
+                                    onclick="openLoginModal()"
+                                >
+                                    X
+                                </button>
+
+
+                                <button
+                                    type="button"
+                                    class="prediction-button"
+                                    onclick="openLoginModal()"
+                                >
+                                    2
+                                </button>
+
+
+                            {% endif %}
+
+
+                        </div>
+
+
+                        <div class="team team-away">
+                            {{ match.away_team }}
+                        </div>
+
+
+                    </div>
+
+
+                </div>
+
+
+                {% endfor %}
+
+
+            </div>
+
+
+            {% if user.is_authenticated %}
+
+
+                <button
+                    type="submit"
+                    class="save-button"
+                    onclick="prepareForm(event)"
+                >
+                    Zapisz typy
+                </button>
+
+
+            {% else %}
+
+
+                <button
+                    type="button"
+                    class="save-button"
+                    onclick="openLoginModal()"
+                >
+                    🔒 Zaloguj się, aby typować
+                </button>
+
+
+            {% endif %}
+
+
+        </form>
+
+
+        <div class="counter">
+
+
+            {% if user.is_authenticated %}
+
+                Wytypowano
+
+                <span id="selected-count">
+                    0
+                </span>
+
+                z
+
+                {{ matches|length }}
+
+            {% else %}
+
+                Zaloguj się, aby rozpocząć typowanie.
+
+
+            {% endif %}
+
+
+        </div>
+
+
+    </main>
+
+
+</div>
+
+
+<!-- =========================
+     LOGIN MODAL
+========================== -->
+
+
+{% if not user.is_authenticated %}
+
+
+<div
+    id="login-modal"
+    class="modal-overlay"
+    onclick="closeModalOnOverlay(event)"
+>
+
+
+    <div class="modal">
+
+
+        <button
+            type="button"
+            class="modal-close"
+            onclick="closeLoginModal()"
+        >
+            ×
+        </button>
+
+
+        <div class="modal-icon">
+            ⚽
+        </div>
+
+
+        <h2>
+            Chcesz zacząć typować?
+        </h2>
+
+
+        <p>
+            Zaloguj się, żeby zapisywać swoje typy,
+            zdobywać punkty i walczyć o miejsce
+            w rankingu MATCH50.
+        </p>
+
+
+        <a
+            href="{% url 'login' %}"
+            class="modal-button modal-login"
+        >
+            Zaloguj się
+        </a>
+
+
+        <!--
+            DUMMY BUTTON
+
+            Później podłączymy tutaj
+            prawdziwą rejestrację.
+        -->
+
+        <button
+            type="button"
+            class="modal-button modal-register"
+            onclick="registerComingSoon()"
+        >
+            Zarejestruj się
+        </button>
+
+
+    </div>
+
+
+</div>
+
+
+{% endif %}
+
+
+<script>
+
+
+    /* =========================
+       USER MENU
+    ========================== */
+
+
+    function toggleUserMenu() {
+
+
+        const dropdown =
+            document.getElementById(
+                "user-dropdown"
+            );
+
+
+        dropdown.classList.toggle(
+            "open"
+        );
+
+    }
+
+
+    document.addEventListener(
+        "click",
+        function(event) {
+
+
+            const userMenu =
+                document.querySelector(
+                    ".user-menu"
+                );
+
+
+            if (
+                userMenu &&
+                !userMenu.contains(
+                    event.target
+                )
+            ) {
+
+
+                const dropdown =
+                    document.getElementById(
+                        "user-dropdown"
+                    );
+
+
+                if (dropdown) {
+
+                    dropdown.classList.remove(
+                        "open"
+                    );
+
+                }
+
+            }
+
+        }
+    );
+
+
+    /* =========================
+       LOGIN MODAL
+    ========================== */
+
+
+    function openLoginModal() {
+
+
+        const modal =
+            document.getElementById(
+                "login-modal"
+            );
+
+
+        if (modal) {
+
+            modal.classList.add(
+                "open"
+            );
+
+        }
+
+    }
+
+
+    function closeLoginModal() {
+
+
+        const modal =
+            document.getElementById(
+                "login-modal"
+            );
+
+
+        if (modal) {
+
+            modal.classList.remove(
+                "open"
+            );
+
+        }
+
+    }
+
+
+    function closeModalOnOverlay(event) {
+
+
+        if (
+            event.target === event.currentTarget
+        ) {
+
+            closeLoginModal();
+
+        }
+
+    }
+
+
+    /*
+     * ESC zamyka popup.
+     */
+
+    document.addEventListener(
+        "keydown",
+        function(event) {
+
+
+            if (
+                event.key === "Escape"
+            ) {
+
+                closeLoginModal();
+
+            }
+
+        }
+    );
+
+
+    /*
+     * Tymczasowy przycisk rejestracji.
+     *
+     * Później podmienimy tę funkcję
+     * na prawdziwą stronę rejestracji.
+     */
+
+    function registerComingSoon() {
+
+        alert(
+            "Rejestracja już wkrótce! 🚀"
+        );
+
+    }
+
+
+    /* =========================
+       PREDICTIONS
+    ========================== */
+
+
+    {% if user.is_authenticated %}
+
+
+        const predictions = {};
+
+
+        {% for match in matches %}
+
+
+            {% if match.saved_prediction %}
+
+                predictions["{{ match.id }}"] =
+                    "{{ match.saved_prediction }}";
+
+            {% endif %}
+
+
+        {% endfor %}
+
+
+        function selectPrediction(button) {
+
+
+            const match =
+                button.closest(".match");
+
+
+            const matchId =
+                button.dataset.match;
+
+
+            const prediction =
+                button.dataset.prediction;
+
+
+            const savedPrediction =
+                button.dataset.saved;
+
+
+            const currentPrediction =
+                predictions[matchId];
+
+
+            /*
+             * Drugie kliknięcie tego samego
+             * niezapisanego typu cofa zmianę.
+             */
+
+            if (
+                currentPrediction === prediction &&
+                prediction !== savedPrediction
+            ) {
+
+
+                if (savedPrediction) {
+
+                    predictions[matchId] =
+                        savedPrediction;
+
+                } else {
+
+                    delete predictions[matchId];
+
+                }
+
+
+                updateButtons(match);
+
+                updateCounter();
+
+                return;
+
+            }
+
+
+            predictions[matchId] =
+                prediction;
+
+
+            updateButtons(match);
+
+            updateCounter();
+
+        }
+
+
+        function updateButtons(match) {
+
+
+            const matchId =
+                match.querySelector(
+                    ".prediction-button"
+                ).dataset.match;
+
+
+            const currentPrediction =
+                predictions[matchId];
+
+
+            const buttons =
+                match.querySelectorAll(
+                    ".prediction-button"
+                );
+
+
+            buttons.forEach(
+                function(button) {
+
+
+                    const prediction =
+                        button.dataset.prediction;
+
+
+                    const savedPrediction =
+                        button.dataset.saved;
+
+
+                    button.classList.remove(
+                        "selected"
+                    );
+
+
+                    if (
+                        prediction === savedPrediction &&
+                        savedPrediction !== ""
+                    ) {
+
+                        button.classList.add(
+                            "saved"
+                        );
+
+                    } else {
+
+                        button.classList.remove(
+                            "saved"
+                        );
+
+                    }
+
+
+                    if (
+                        prediction === currentPrediction &&
+                        prediction !== savedPrediction
+                    ) {
+
+                        button.classList.add(
+                            "selected"
+                        );
+
+                    }
+
+                }
+            );
+
+        }
+
+
+        function updateCounter() {
+
+
+            const selectedCount =
+                Object.keys(
+                    predictions
+                ).length;
+
+
+            document.getElementById(
+                "selected-count"
+            ).textContent =
+                selectedCount;
+
+        }
+
+
+        function prepareForm(event) {
+
+
+            const selectedCount =
+                Object.keys(
+                    predictions
+                ).length;
+
+
+            const totalMatches =
+                document.querySelectorAll(
+                    ".match"
+                ).length;
+
+
+            if (
+                selectedCount < totalMatches
+            ) {
+
+
+                event.preventDefault();
+
+
+                alert(
+                    "Najpierw wytypuj wszystkie mecze. " +
+                    "Masz " +
+                    selectedCount +
+                    " z " +
+                    totalMatches +
+                    "."
+                );
+
+
+                return;
+
+            }
+
+
+            const form =
+                document.querySelector(
+                    "main form"
+                );
+
+
+            Object.keys(
+                predictions
+            ).forEach(
+                function(matchId) {
+
+
+                    const input =
+                        document.createElement(
+                            "input"
+                        );
+
+
+                    input.type =
+                        "hidden";
+
+
+                    input.name =
+                        "prediction_" +
+                        matchId;
+
+
+                    input.value =
+                        predictions[matchId];
+
+
+                    form.appendChild(
+                        input
+                    );
+
+                }
+            );
+
+        }
+
+
+        /*
+         * Pierwsze załadowanie.
+         */
+
+        document.querySelectorAll(
+            ".match"
+        ).forEach(
+            function(match) {
+
+                updateButtons(match);
+
+            }
+        );
+
+
+        updateCounter();
+
+
+    {% endif %}
+
+
+</script>
+
+
+</body>
+
+</html>

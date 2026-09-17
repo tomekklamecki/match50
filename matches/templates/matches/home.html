@@ -1,0 +1,1654 @@
+<!DOCTYPE html>
+<html lang="pl">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>MATCH50 — Typuj. Zdobywaj punkty. Wygrywaj.</title>
+
+
+    <style>
+
+        * {
+            box-sizing: border-box;
+        }
+
+
+        body {
+            margin: 0;
+
+            font-family: Arial, sans-serif;
+
+            background: #f5f6f8;
+
+            color: #222;
+        }
+
+
+        .container {
+            width: 100%;
+
+            max-width: 1100px;
+
+            margin: 0 auto;
+
+            padding: 20px;
+        }
+
+
+        /* =========================
+           HEADER
+        ========================= */
+
+        header {
+            display: flex;
+
+            justify-content: space-between;
+
+            align-items: center;
+
+            margin-bottom: 25px;
+        }
+
+
+        .logo {
+            font-size: 28px;
+
+            font-weight: 700;
+        }
+
+
+        nav {
+            display: flex;
+
+            align-items: center;
+        }
+
+
+        nav a {
+            color: #222;
+
+            text-decoration: none;
+
+            margin-left: 20px;
+        }
+
+
+        nav a:hover {
+            text-decoration: underline;
+        }
+
+
+        /* =========================
+           USER MENU
+        ========================= */
+
+        .user-menu {
+            position: relative;
+
+            margin-left: 20px;
+        }
+
+
+        .user-button {
+            border: none;
+
+            background: none;
+
+            padding: 6px 8px;
+
+            font-family: inherit;
+
+            font-size: 15px;
+
+            font-weight: 600;
+
+            cursor: pointer;
+
+            border-radius: 8px;
+        }
+
+
+        .user-button:hover {
+            background: #e9eaed;
+        }
+
+
+        .user-arrow {
+            font-size: 11px;
+
+            margin-left: 4px;
+        }
+
+
+        .user-dropdown {
+            display: none;
+
+            position: absolute;
+
+            top: calc(100% + 8px);
+
+            right: 0;
+
+            width: 190px;
+
+            background: white;
+
+            border-radius: 10px;
+
+            padding: 6px;
+
+            box-shadow:
+                0 4px 18px rgba(0, 0, 0, 0.12);
+
+            z-index: 100;
+        }
+
+
+        .user-dropdown.open {
+            display: block;
+        }
+
+
+        .user-dropdown a,
+        .user-dropdown button {
+            display: block;
+
+            width: 100%;
+
+            padding: 10px 12px;
+
+            border: none;
+
+            border-radius: 7px;
+
+            background: none;
+
+            color: #222;
+
+            text-align: left;
+
+            text-decoration: none;
+
+            font-family: inherit;
+
+            font-size: 14px;
+
+            cursor: pointer;
+
+            margin: 0;
+        }
+
+
+        .user-dropdown a:hover,
+        .user-dropdown button:hover {
+            background: #f1f2f4;
+        }
+
+
+        .dropdown-divider {
+            height: 1px;
+
+            background: #e5e5e5;
+
+            margin: 5px 0;
+        }
+
+
+        .logout-button {
+            color: #b91c1c !important;
+        }
+
+
+        .login-link {
+            color: #222;
+
+            text-decoration: none;
+
+            margin-left: 20px;
+        }
+
+
+        .login-link:hover {
+            text-decoration: underline;
+        }
+
+
+        /* =========================
+           MAIN GRID
+        ========================= */
+
+        .main-grid {
+            display: grid;
+
+            grid-template-columns:
+                minmax(0, 1fr)
+                340px;
+
+            gap: 20px;
+
+            align-items: start;
+        }
+
+
+        /* =========================
+           LEFT COLUMN
+        ========================= */
+
+        .hero {
+            background: white;
+
+            border-radius: 18px;
+
+            padding: 50px 40px;
+
+            box-shadow:
+                0 2px 10px rgba(0, 0, 0, 0.06);
+
+            text-align: center;
+        }
+
+
+        .hero-label {
+            display: inline-block;
+
+            background: #e8f7ed;
+
+            color: #15803d;
+
+            padding: 7px 12px;
+
+            border-radius: 999px;
+
+            font-size: 13px;
+
+            font-weight: 700;
+
+            margin-bottom: 18px;
+        }
+
+
+        .hero h1 {
+            margin: 0 auto 15px;
+
+            max-width: 650px;
+
+            font-size: 43px;
+
+            line-height: 1.1;
+        }
+
+
+        .hero p {
+            max-width: 570px;
+
+            margin: 0 auto 28px;
+
+            color: #666;
+
+            font-size: 17px;
+
+            line-height: 1.5;
+        }
+
+
+        .hero-buttons {
+            display: flex;
+
+            justify-content: center;
+
+            gap: 10px;
+
+            flex-wrap: wrap;
+        }
+
+
+        .primary-button {
+            display: inline-block;
+
+            padding: 14px 24px;
+
+            border-radius: 10px;
+
+            background: #16a34a;
+
+            color: white;
+
+            text-decoration: none;
+
+            font-size: 16px;
+
+            font-weight: 700;
+        }
+
+
+        .primary-button:hover {
+            background: #15803d;
+        }
+
+
+        .secondary-button {
+            display: inline-block;
+
+            padding: 14px 24px;
+
+            border-radius: 10px;
+
+            background: #f1f2f4;
+
+            color: #222;
+
+            text-decoration: none;
+
+            font-size: 16px;
+
+            font-weight: 600;
+        }
+
+
+        .secondary-button:hover {
+            background: #e5e7eb;
+        }
+
+
+        /* =========================
+           STATS
+        ========================= */
+
+        .stats {
+            display: grid;
+
+            grid-template-columns:
+                repeat(3, 1fr);
+
+            gap: 12px;
+
+            margin-top: 15px;
+        }
+
+
+        .stat {
+            background: white;
+
+            border-radius: 12px;
+
+            padding: 18px;
+
+            text-align: center;
+
+            box-shadow:
+                0 1px 4px rgba(0, 0, 0, 0.06);
+        }
+
+
+        .stat-number {
+            font-size: 22px;
+
+            font-weight: 700;
+
+            margin-bottom: 5px;
+        }
+
+
+        .stat-label {
+            color: #777;
+
+            font-size: 12px;
+        }
+
+
+        /* =========================
+           HOW IT WORKS
+        ========================= */
+
+        .section {
+            margin-top: 25px;
+        }
+
+
+        .section-title {
+            text-align: center;
+
+            margin-bottom: 15px;
+        }
+
+
+        .section-title h2 {
+            margin: 0 0 5px;
+
+            font-size: 23px;
+        }
+
+
+        .section-title p {
+            margin: 0;
+
+            color: #777;
+        }
+
+
+        .steps {
+            display: grid;
+
+            grid-template-columns:
+                repeat(3, 1fr);
+
+            gap: 12px;
+        }
+
+
+        .step {
+            background: white;
+
+            border-radius: 12px;
+
+            padding: 20px;
+
+            box-shadow:
+                0 1px 4px rgba(0, 0, 0, 0.06);
+        }
+
+
+        .step-number {
+            width: 32px;
+
+            height: 32px;
+
+            display: flex;
+
+            align-items: center;
+
+            justify-content: center;
+
+            border-radius: 50%;
+
+            background: #16a34a;
+
+            color: white;
+
+            font-weight: 700;
+
+            margin-bottom: 12px;
+        }
+
+
+        .step h3 {
+            margin: 0 0 7px;
+
+            font-size: 16px;
+        }
+
+
+        .step p {
+            margin: 0;
+
+            color: #777;
+
+            font-size: 13px;
+
+            line-height: 1.5;
+        }
+
+
+        /* =========================
+           RIGHT COLUMN
+        ========================= */
+
+        .leaderboards {
+            display: flex;
+
+            flex-direction: column;
+
+            gap: 12px;
+        }
+
+
+        .leaderboard {
+            background: white;
+
+            border-radius: 14px;
+
+            padding: 18px;
+
+            box-shadow:
+                0 1px 5px rgba(0, 0, 0, 0.07);
+        }
+
+
+        .leaderboard-header {
+            display: flex;
+
+            align-items: center;
+
+            justify-content: space-between;
+
+            margin-bottom: 12px;
+        }
+
+
+        .leaderboard-title {
+            font-size: 16px;
+
+            font-weight: 700;
+        }
+
+
+        .leaderboard-icon {
+            font-size: 20px;
+        }
+
+
+        .leaderboard-subtitle {
+            color: #888;
+
+            font-size: 11px;
+
+            margin-top: 2px;
+        }
+
+
+        .ranking-row {
+            display: grid;
+
+            grid-template-columns:
+                28px
+                minmax(0, 1fr)
+                auto;
+
+            align-items: center;
+
+            gap: 7px;
+
+            padding: 9px 0;
+
+            border-bottom: 1px solid #eee;
+        }
+
+
+        .ranking-row:last-child {
+            border-bottom: none;
+        }
+
+
+        .ranking-position {
+            font-size: 13px;
+
+            color: #888;
+
+            font-weight: 600;
+        }
+
+
+        .ranking-position.top {
+            font-size: 15px;
+
+            color: #222;
+        }
+
+
+        .ranking-user {
+            font-size: 14px;
+
+            font-weight: 600;
+
+            white-space: nowrap;
+
+            overflow: hidden;
+
+            text-overflow: ellipsis;
+        }
+
+
+        .ranking-points {
+            font-size: 13px;
+
+            font-weight: 700;
+        }
+
+
+        .ranking-points span {
+            color: #888;
+
+            font-weight: 400;
+
+            margin-left: 2px;
+        }
+
+
+        .leaderboard-footer {
+            display: block;
+
+            margin-top: 10px;
+
+            color: #666;
+
+            font-size: 12px;
+
+            text-decoration: none;
+
+            text-align: center;
+        }
+
+
+        .leaderboard-footer:hover {
+            color: #222;
+
+            text-decoration: underline;
+        }
+
+
+        /* =========================
+           BOTTOM CTA
+        ========================= */
+
+        .bottom-cta {
+            margin-top: 25px;
+
+            background: #222;
+
+            color: white;
+
+            border-radius: 16px;
+
+            padding: 30px;
+
+            text-align: center;
+        }
+
+
+        .bottom-cta h2 {
+            margin: 0 0 8px;
+
+            font-size: 24px;
+        }
+
+
+        .bottom-cta p {
+            margin: 0 0 20px;
+
+            color: #bbb;
+        }
+
+
+        .bottom-cta .primary-button {
+            background: white;
+
+            color: #222;
+        }
+
+
+        .bottom-cta .primary-button:hover {
+            background: #f1f1f1;
+        }
+
+
+        /* =========================
+           MOBILE
+        ========================= */
+
+        @media (max-width: 850px) {
+
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+
+
+            .leaderboards {
+                display: grid;
+
+                grid-template-columns:
+                    repeat(3, 1fr);
+            }
+
+        }
+
+
+        @media (max-width: 600px) {
+
+            .container {
+                padding: 15px;
+            }
+
+
+            header {
+                flex-direction: column;
+
+                align-items: flex-start;
+
+                gap: 12px;
+            }
+
+
+            nav {
+                flex-wrap: wrap;
+
+                gap: 8px;
+            }
+
+
+            nav a {
+                margin-left: 0;
+
+                margin-right: 5px;
+            }
+
+
+            .user-menu {
+                margin-left: 0;
+            }
+
+
+            .user-dropdown {
+                left: 0;
+
+                right: auto;
+            }
+
+
+            .hero {
+                padding: 38px 22px;
+            }
+
+
+            .hero h1 {
+                font-size: 34px;
+            }
+
+
+            .hero p {
+                font-size: 16px;
+            }
+
+
+            .stats {
+                grid-template-columns: 1fr;
+            }
+
+
+            .steps {
+                grid-template-columns: 1fr;
+            }
+
+
+            .leaderboards {
+                grid-template-columns: 1fr;
+            }
+
+
+            .bottom-cta {
+                padding: 28px 20px;
+            }
+
+        }
+
+    </style>
+
+</head>
+
+
+<body>
+
+
+<div class="container">
+
+
+    <!-- =========================
+         HEADER
+    ========================== -->
+
+
+    <header>
+
+
+        <div class="logo">
+            MATCH50 ⚽
+        </div>
+
+
+        <nav>
+
+
+            <a href="/">
+                Strona główna
+            </a>
+
+
+            <a href="/obstaw/">
+                Obstaw
+            </a>
+
+
+            {% if user.is_authenticated %}
+
+
+                <div class="user-menu">
+
+
+                    <button
+                        type="button"
+                        class="user-button"
+                        onclick="toggleUserMenu()"
+                    >
+
+                        👤 {{ user.username }}
+
+                        <span class="user-arrow">
+                            ▼
+                        </span>
+
+                    </button>
+
+
+                    <div
+                        id="user-dropdown"
+                        class="user-dropdown"
+                    >
+
+
+                        <a href="#">
+                            👤 Mój profil
+                        </a>
+
+
+                        <a href="#">
+                            🏆 Moje wyniki
+                        </a>
+
+
+                        <a href="#">
+                            📊 Ranking
+                        </a>
+
+
+                        <a href="#">
+                            ⚙️ Ustawienia
+                        </a>
+
+
+                        <div class="dropdown-divider"></div>
+
+
+                        <form
+                            method="post"
+                            action="{% url 'logout' %}"
+                        >
+
+                            {% csrf_token %}
+
+
+                            <button
+                                type="submit"
+                                class="logout-button"
+                            >
+                                🚪 Wyloguj
+                            </button>
+
+                        </form>
+
+
+                    </div>
+
+
+                </div>
+
+
+            {% else %}
+
+
+                <a
+                    href="{% url 'login' %}"
+                    class="login-link"
+                >
+                    Zaloguj się
+                </a>
+
+
+            {% endif %}
+
+
+        </nav>
+
+
+    </header>
+
+
+    <!-- =========================
+         MAIN GRID
+    ========================== -->
+
+
+    <div class="main-grid">
+
+
+        <!-- =====================
+             LEFT
+        ====================== -->
+
+
+        <div>
+
+
+            <section class="hero">
+
+
+                <div class="hero-label">
+                    ⚽ TYPER PIŁKARSKI
+                </div>
+
+
+                <h1>
+                    Udowodnij, że znasz się na piłce.
+                </h1>
+
+
+                <p>
+                    Typuj wyniki meczów, zdobywaj punkty
+                    i sprawdź, jak wypadasz na tle innych.
+                    Liczy się wiedza, wyczucie i odrobina szczęścia.
+                </p>
+
+
+                <div class="hero-buttons">
+
+
+                    {% if user.is_authenticated %}
+
+
+                        <a
+                            href="/obstaw/"
+                            class="primary-button"
+                        >
+                            🔥 Zacznij typować
+                        </a>
+
+
+                        <a
+                            href="/obstaw/"
+                            class="secondary-button"
+                        >
+                            Zobacz kolejkę
+                        </a>
+
+
+                    {% else %}
+
+
+                        <a
+                            href="/login/"
+                            class="primary-button"
+                        >
+                            🔥 Zacznij typować
+                        </a>
+
+
+                        <a
+                            href="/obstaw/"
+                            class="secondary-button"
+                        >
+                            Zobacz mecze
+                        </a>
+
+
+                    {% endif %}
+
+
+                </div>
+
+
+            </section>
+
+
+            <!-- STATS -->
+
+
+            <section class="stats">
+
+
+                <div class="stat">
+
+                    <div class="stat-number">
+                        10
+                    </div>
+
+                    <div class="stat-label">
+                        meczów w kolejce
+                    </div>
+
+                </div>
+
+
+                <div class="stat">
+
+                    <div class="stat-number">
+                        1 / X / 2
+                    </div>
+
+                    <div class="stat-label">
+                        możliwe typy
+                    </div>
+
+                </div>
+
+
+                <div class="stat">
+
+                    <div class="stat-number">
+                        0
+                    </div>
+
+                    <div class="stat-label">
+                        punktów na start
+                    </div>
+
+                </div>
+
+
+            </section>
+
+
+            <!-- HOW IT WORKS -->
+
+
+            <section class="section">
+
+
+                <div class="section-title">
+
+                    <h2>
+                        Jak to działa?
+                    </h2>
+
+                    <p>
+                        Trzy proste kroki.
+                    </p>
+
+                </div>
+
+
+                <div class="steps">
+
+
+                    <div class="step">
+
+
+                        <div class="step-number">
+                            1
+                        </div>
+
+
+                        <h3>
+                            Wybierz wyniki
+                        </h3>
+
+
+                        <p>
+                            Przejrzyj mecze i zdecyduj,
+                            kto wygra albo czy padnie remis.
+                        </p>
+
+
+                    </div>
+
+
+                    <div class="step">
+
+
+                        <div class="step-number">
+                            2
+                        </div>
+
+
+                        <h3>
+                            Zapisz typy
+                        </h3>
+
+
+                        <p>
+                            Wytypuj całą kolejkę i zapisz
+                            swoje przewidywania przed meczami.
+                        </p>
+
+
+                    </div>
+
+
+                    <div class="step">
+
+
+                        <div class="step-number">
+                            3
+                        </div>
+
+
+                        <h3>
+                            Zdobywaj punkty
+                        </h3>
+
+
+                        <p>
+                            Sprawdź swoje wyniki i zobacz,
+                            jak radzisz sobie w rankingu.
+                        </p>
+
+
+                    </div>
+
+
+                </div>
+
+
+            </section>
+
+
+        </div>
+
+
+        <!-- =====================
+             RIGHT — RANKINGS
+        ====================== -->
+
+
+        <aside class="leaderboards">
+
+
+            <!-- OSTATNIA KOLEJKA -->
+
+
+            <div class="leaderboard">
+
+
+                <div class="leaderboard-header">
+
+
+                    <div>
+
+                        <div class="leaderboard-title">
+                            Ostatnia kolejka
+                        </div>
+
+                        <div class="leaderboard-subtitle">
+                            Kolejka #12
+                        </div>
+
+                    </div>
+
+
+                    <div class="leaderboard-icon">
+                        🏆
+                    </div>
+
+
+                </div>
+
+
+                <div class="ranking-row">
+
+                    <div class="ranking-position top">
+                        1
+                    </div>
+
+                    <div class="ranking-user">
+                        Kacper
+                    </div>
+
+                    <div class="ranking-points">
+                        9<span>pkt</span>
+                    </div>
+
+                </div>
+
+
+                <div class="ranking-row">
+
+                    <div class="ranking-position">
+                        2
+                    </div>
+
+                    <div class="ranking-user">
+                        Mati23
+                    </div>
+
+                    <div class="ranking-points">
+                        8<span>pkt</span>
+                    </div>
+
+                </div>
+
+
+                <div class="ranking-row">
+
+                    <div class="ranking-position">
+                        3
+                    </div>
+
+                    <div class="ranking-user">
+                        Bartek
+                    </div>
+
+                    <div class="ranking-points">
+                        8<span>pkt</span>
+                    </div>
+
+                </div>
+
+
+                <div class="ranking-row">
+
+                    <div class="ranking-position">
+                        4
+                    </div>
+
+                    <div class="ranking-user">
+                        Zielu
+                    </div>
+
+                    <div class="ranking-points">
+                        7<span>pkt</span>
+                    </div>
+
+                </div>
+
+
+                <div class="ranking-row">
+
+                    <div class="ranking-position">
+                        5
+                    </div>
+
+                    <div class="ranking-user">
+                        AniaK
+                    </div>
+
+                    <div class="ranking-points">
+                        7<span>pkt</span>
+                    </div>
+
+                </div>
+
+
+                <a
+                    href="#"
+                    class="leaderboard-footer"
+                >
+                    Zobacz pełny ranking →
+                </a>
+
+
+            </div>
+
+
+            <!-- SEZON -->
+
+
+            <div class="leaderboard">
+
+
+                <div class="leaderboard-header">
+
+
+                    <div>
+
+                        <div class="leaderboard-title">
+                            Ranking sezonu
+                        </div>
+
+                        <div class="leaderboard-subtitle">
+                            Sezon 2026/27
+                        </div>
+
+                    </div>
+
+
+                    <div class="leaderboard-icon">
+                        🔥
+                    </div>
+
+
+                </div>
+
+
+                <div class="ranking-row">
+
+                    <div class="ranking-position top">
+                        1
+                    </div>
+
+                    <div class="ranking-user">
+                        Michalinho
+                    </div>
+
+                    <div class="ranking-points">
+                        82<span>pkt</span>
+                    </div>
+
+                </div>
+
+
+                <div class="ranking-row">
+
+                    <div class="ranking-position">
+                        2
+                    </div>
+
+                    <div class="ranking-user">
+                        Kacper
+                    </div>
+
+                    <div class="ranking-points">
+                        79<span>pkt</span>
+                    </div>
+
+                </div>
+
+
+                <div class="ranking-row">
+
+                    <div class="ranking-position">
+                        3
+                    </div>
+
+                    <div class="ranking-user">
+                        Tomek90
+                    </div>
+
+                    <div class="ranking-points">
+                        76<span>pkt</span>
+                    </div>
+
+                </div>
+
+
+                <div class="ranking-row">
+
+                    <div class="ranking-position">
+                        4
+                    </div>
+
+                    <div class="ranking-user">
+                        Ola
+                    </div>
+
+                    <div class="ranking-points">
+                        74<span>pkt</span>
+                    </div>
+
+                </div>
+
+
+                <div class="ranking-row">
+
+                    <div class="ranking-position">
+                        5
+                    </div>
+
+                    <div class="ranking-user">
+                        Zielu
+                    </div>
+
+                    <div class="ranking-points">
+                        71<span>pkt</span>
+                    </div>
+
+                </div>
+
+
+                <a
+                    href="#"
+                    class="leaderboard-footer"
+                >
+                    Zobacz pełny ranking →
+                </a>
+
+
+            </div>
+
+
+            <!-- ALL TIME -->
+
+
+            <div class="leaderboard">
+
+
+                <div class="leaderboard-header">
+
+
+                    <div>
+
+                        <div class="leaderboard-title">
+                            All time
+                        </div>
+
+                        <div class="leaderboard-subtitle">
+                            Od początku MATCH50
+                        </div>
+
+                    </div>
+
+
+                    <div class="leaderboard-icon">
+                        👑
+                    </div>
+
+                </div>
+
+
+                <div class="ranking-row">
+
+                    <div class="ranking-position top">
+                        1
+                    </div>
+
+                    <div class="ranking-user">
+                        Kacper
+                    </div>
+
+                    <div class="ranking-points">
+                        428<span>pkt</span>
+                    </div>
+
+                </div>
+
+
+                <div class="ranking-row">
+
+                    <div class="ranking-position">
+                        2
+                    </div>
+
+                    <div class="ranking-user">
+                        Michalinho
+                    </div>
+
+                    <div class="ranking-points">
+                        411<span>pkt</span>
+                    </div>
+
+                </div>
+
+
+                <div class="ranking-row">
+
+                    <div class="ranking-position">
+                        3
+                    </div>
+
+                    <div class="ranking-user">
+                        Bartek
+                    </div>
+
+                    <div class="ranking-points">
+                        397<span>pkt</span>
+                    </div>
+
+                </div>
+
+
+                <div class="ranking-row">
+
+                    <div class="ranking-position">
+                        4
+                    </div>
+
+                    <div class="ranking-user">
+                        Mati23
+                    </div>
+
+                    <div class="ranking-points">
+                        385<span>pkt</span>
+                    </div>
+
+                </div>
+
+
+                <div class="ranking-row">
+
+                    <div class="ranking-position">
+                        5
+                    </div>
+
+                    <div class="ranking-user">
+                        AniaK
+                    </div>
+
+                    <div class="ranking-points">
+                        372<span>pkt</span>
+                    </div>
+
+                </div>
+
+
+                <a
+                    href="#"
+                    class="leaderboard-footer"
+                >
+                    Zobacz pełny ranking →
+                </a>
+
+
+            </div>
+
+
+        </aside>
+
+
+    </div>
+
+
+    <!-- =========================
+         BOTTOM CTA
+    ========================= -->
+
+
+    {% if not user.is_authenticated %}
+
+
+        <section class="bottom-cta">
+
+
+            <h2>
+                Myślisz, że jesteś dobrym typerem?
+            </h2>
+
+
+            <p>
+                Załóż konto i sprawdź to w praktyce.
+            </p>
+
+
+            <a
+                href="/login/"
+                class="primary-button"
+            >
+                Dołącz do MATCH50
+            </a>
+
+
+        </section>
+
+
+    {% endif %}
+
+
+</div>
+
+
+<script>
+
+
+    /* =========================
+       USER MENU
+    ========================= */
+
+
+    function toggleUserMenu() {
+
+
+        const dropdown =
+            document.getElementById(
+                "user-dropdown"
+            );
+
+
+        dropdown.classList.toggle(
+            "open"
+        );
+
+    }
+
+
+    /*
+     * Kliknięcie poza menu
+     * zamyka menu.
+     */
+
+    document.addEventListener(
+        "click",
+        function(event) {
+
+
+            const userMenu =
+                document.querySelector(
+                    ".user-menu"
+                );
+
+
+            if (
+                userMenu &&
+                !userMenu.contains(
+                    event.target
+                )
+            ) {
+
+
+                const dropdown =
+                    document.getElementById(
+                        "user-dropdown"
+                    );
+
+
+                if (dropdown) {
+
+                    dropdown.classList.remove(
+                        "open"
+                    );
+
+                }
+
+            }
+
+        }
+    );
+
+
+</script>
+
+
+</body>
+
+</html>

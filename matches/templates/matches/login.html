@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            min-height: 100vh;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            justify-content: center;
+            padding: 24px;
+            font-family: Arial, sans-serif;
+            color: #222;
+            background: #f5f6f8;
+        }
+
+        body > h1,
+        body > h2,
+        body > form {
+            width: 100%;
+            max-width: 420px;
+            margin-right: auto;
+            margin-left: auto;
+        }
+
+        body > h1 {
+            margin-top: 0;
+            margin-bottom: 22px;
+            font-size: 28px;
+            letter-spacing: -0.8px;
+        }
+
+        body > h2 {
+            margin-top: 0;
+            margin-bottom: 8px;
+            padding: 36px 36px 0;
+            border-radius: 18px 18px 0 0;
+            background: #fff;
+            font-size: 30px;
+            line-height: 1.15;
+        }
+
+        body > h2::after {
+            content: "Zaloguj się, aby typować mecze i śledzić swoje wyniki.";
+            display: block;
+            margin-top: 9px;
+            color: #6b7280;
+            font-size: 15px;
+            font-weight: 400;
+            line-height: 1.5;
+        }
+
+        body > form {
+            margin-top: 0;
+            padding: 22px 36px 36px;
+            border-radius: 0 0 18px 18px;
+            background: #fff;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, .08);
+        }
+
+        form p { margin: 0 0 18px; }
+
+        form label {
+            display: block;
+            margin-bottom: 7px;
+            color: #374151;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        form input {
+            width: 100%;
+            min-height: 46px;
+            padding: 11px 13px;
+            border: 1px solid #d7dbe0;
+            border-radius: 10px;
+            outline: none;
+            background: #fff;
+            color: #222;
+            font: inherit;
+            transition: border-color .2s, box-shadow .2s;
+        }
+
+        form input:focus {
+            border-color: #16a34a;
+            box-shadow: 0 0 0 3px rgba(22, 163, 74, .15);
+        }
+
+        form .helptext,
+        form .errorlist {
+            display: block;
+            margin: 7px 0 0;
+            color: #b91c1c;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        form .errorlist { padding: 0; list-style: none; }
+
+        form > ul.errorlist {
+            margin: 0 0 16px;
+            padding: 11px 13px;
+            border-radius: 10px;
+            background: #fef2f2;
+        }
+
+        button[type="submit"] {
+            width: 100%;
+            min-height: 48px;
+            margin-top: 4px;
+            border: 0;
+            border-radius: 10px;
+            background: #16a34a;
+            color: #fff;
+            cursor: pointer;
+            font: inherit;
+            font-size: 16px;
+            font-weight: 700;
+            transition: background .2s, transform .2s;
+        }
+
+        button[type="submit"]:hover { background: #15803d; }
+        button[type="submit"]:active { transform: translateY(1px); }
+
+        @media (max-width: 480px) {
+            body { padding: 16px; }
+            body > h2 { padding: 28px 22px 0; border-radius: 14px 14px 0 0; font-size: 27px; }
+            body > form { padding: 22px 22px 28px; border-radius: 0 0 14px 14px; }
+        }
+    </style>
+    <title>Logowanie — MATCH50</title>
+</head>
+<body>
+
+    <h1>MATCH50 ⚽</h1>
+
+    <h2>Logowanie</h2>
+
+    <form method="post">
+        {% csrf_token %}
+
+        {{ form.as_p }}
+
+        <button type="submit">Zaloguj się</button>
+    </form>
+
+</body>
+</html>
