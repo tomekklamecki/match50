@@ -1,0 +1,23 @@
+{% extends "matches/base.html" %}
+{% block title %}Draft — MATCH50{% endblock %}
+{% block content %}
+<style>
+  .draft-head{padding:24px;margin-bottom:16px}.draft-head h1{font-size:40px;letter-spacing:-.06em;margin:6px 0}.draft-head p{margin:0;color:var(--muted);font-weight:700}.draft-grid{display:grid;gap:14px}.draft-pair{padding:18px}.pair-top,.match-vote,.pair-foot{display:flex;align-items:center;justify-content:space-between;gap:12px}.pair-top{margin-bottom:14px}.match-vote{border:1px solid var(--line);border-radius:13px;padding:14px;margin-top:9px}.match-vote.selected{border-color:#9fcb17;background:#f5fbdc}.match-vote.winner{border-color:var(--lime);box-shadow:inset 0 0 0 1px var(--lime)}.teams{font-size:18px;font-weight:900}.meta{font-size:12px;color:var(--muted);font-weight:800;margin-top:3px}.ratio{font-size:24px;font-weight:900;letter-spacing:-.06em;min-width:48px;text-align:right}.unknown{color:var(--muted)}.vote-button{min-width:94px}.pill{padding:5px 8px;border-radius:99px;background:#edf1f7;color:var(--navy);font-size:11px;font-weight:900}.pill.open{background:#eaf7bd}.pill.closed{background:#edf1f7}.empty{padding:28px;text-align:center}@media(min-width:760px){.draft-grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+{% if draft %}
+<section class="draft-head card"><div class="pill">DRAFT</div><h1>DAY {{ current_day }} / 6</h1><p>5 PAIRS TODAY · TWOJE GŁOSY: {{ completed_votes }} / 30</p><p style="margin-top:14px">DO KOŃCA DNIA: <strong id="draft-countdown" data-closes-at="{{ day_closes_at|date:'c' }}">--:--:--</strong></p></section>
+<section class="draft-grid">
+{% for pair in pairs %}<article class="draft-pair card">
+  <div class="pair-top"><strong>PARA {{ pair.id }}</strong>{% if pair.resolved_at %}<span class="pill closed">ROZSTRZYGNIĘTA</span>{% elif pair.is_open %}<span class="pill open">OTWARTA</span>{% else %}<span class="pill closed">NIEDOSTĘPNA</span>{% endif %}</div>
+  <div class="match-vote {% if pair.winner_id == pair.match_a_id %}winner{% endif %} {% if pair.user_selected_match_id == pair.match_a_id %}selected{% endif %}"><div><div class="teams">{{ pair.match_a.home_team }} — {{ pair.match_a.away_team }}</div><div class="meta">{{ pair.match_a.league }} · {{ pair.match_a.kickoff|date:"d.m.Y H:i" }}</div></div>{% if pair.user_has_voted or pair.resolved_at %}<div class="ratio">{{ pair.match_a_percentage }}%</div>{% elif user.is_authenticated and pair.is_open %}<form method="post" action="{% url 'draft_vote' pair.id %}">{% csrf_token %}<input type="hidden" name="selected_match" value="{{ pair.match_a_id }}"><button class="button vote-button">WYBIERZ</button></form>{% else %}<div class="ratio unknown">?%</div>{% endif %}</div>
+  <div class="match-vote {% if pair.winner_id == pair.match_b_id %}winner{% endif %} {% if pair.user_selected_match_id == pair.match_b_id %}selected{% endif %}"><div><div class="teams">{{ pair.match_b.home_team }} — {{ pair.match_b.away_team }}</div><div class="meta">{{ pair.match_b.league }} · {{ pair.match_b.kickoff|date:"d.m.Y H:i" }}</div></div>{% if pair.user_has_voted or pair.resolved_at %}<div class="ratio">{{ pair.match_b_percentage }}%</div>{% elif user.is_authenticated and pair.is_open %}<form method="post" action="{% url 'draft_vote' pair.id %}">{% csrf_token %}<input type="hidden" name="selected_match" value="{{ pair.match_b_id }}"><button class="button vote-button">WYBIERZ</button></form>{% else %}<div class="ratio unknown">?%</div>{% endif %}</div>
+  <div class="pair-foot meta">{% if pair.resolved_at %}WYNIK: {{ pair.get_resolution_method_display }}{% elif pair.is_open %}Zamknięcie: {{ pair.closes_at|date:"d.m. H:i" }}{% else %}Otwarcie: {{ pair.opens_at|date:"d.m. H:i" }}{% endif %}</div>
+</article>{% endfor %}
+</section>
+{% else %}<section class="empty card"><h1>DRAFT</h1><p>Brak aktywnego draftu.</p></section>{% endif %}
+{% if draft %}<script>
+  const countdown=document.getElementById('draft-countdown');
+  function updateCountdown(){const remaining=new Date(countdown.dataset.closesAt).getTime()-Date.now();if(remaining<=0){countdown.textContent='00:00:00';window.location.reload();return}const hours=Math.floor(remaining/3600000);const minutes=Math.floor(remaining%3600000/60000);const seconds=Math.floor(remaining%60000/1000);countdown.textContent=[hours,minutes,seconds].map(value=>String(value).padStart(2,'0')).join(':')}
+  updateCountdown();setInterval(updateCountdown,1000);
+</script>{% endif %}
+{% endblock %}
