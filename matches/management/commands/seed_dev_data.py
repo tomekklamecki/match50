@@ -1,9 +1,10 @@
 from datetime import timedelta
 
 from django.core.management.base import BaseCommand
+from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-from matches.models import Competition, CompetitionSeason, Draft, GlobalModifier, Match, Round, Team
+from matches.models import Competition, CompetitionSeason, Draft, GlobalModifier, Match, Match50Season, Round, Team, UserRoundScore
 
 
 class Command(BaseCommand):
@@ -27,6 +28,24 @@ class Command(BaseCommand):
         modifiers = {code: GlobalModifier.objects.get_or_create(code=code, defaults={"name": name, "description": description})[0] for code,name,description in modifier_data}
         round_ = Round.objects.filter(is_active=True).first()
         if round_:
+            today = timezone.localdate()
+            game_season, _ = Match50Season.objects.get_or_create(name=f"MATCH50 {today.year}", defaults={"starts_at": today.replace(month=1, day=1), "ends_at": today.replace(month=12, day=31), "is_active": True})
+            if not game_season.is_active and not Match50Season.objects.filter(is_active=True).exists():
+                game_season.is_active = True; game_season.save(update_fields=["is_active"])
+            Round.objects.filter(match50_season__isnull=True).update(match50_season=game_season, ranking_date=today)
+            history, _ = Round.objects.get_or_create(
+                name="Demo ranking history",
+                defaults={"ranking_date": today - timedelta(days=7), "match50_season": game_season, "match_count": 30},
+            )
+            for username, current_values, history_values in [
+                ("demo_rank_alfa", (9, 3, 2), (6, 2, 1)),
+                ("demo_rank_beta", (8, 4, 2), (6, 2, 1)),
+                ("demo_rank_gamma", (8, 4, 2), (6, 2, 1)),
+                ("demo_rank_delta", (7, 2, -2), (4, 1, -1)),
+            ]:
+                user, _ = get_user_model().objects.get_or_create(username=username)
+                UserRoundScore.objects.get_or_create(user=user, round=round_, defaults={"typy_points": current_values[0], "gole_points": current_values[1], "bonus_points": current_values[2]})
+                UserRoundScore.objects.get_or_create(user=user, round=history, defaults={"typy_points": history_values[0], "gole_points": history_values[1], "bonus_points": history_values[2]})
             round_.active_global_modifier = modifiers["HER_MAJESTY_EPL"]; round_.save(update_fields=["active_global_modifier"])
             fixtures = [("EPL","Arsenal","Chelsea"),("EPL","Liverpool","Tottenham"),("LALIGA","Barcelona","Sevilla"),("LALIGA","Real Madrid","Atletico Madrid"),("SERIEA","Inter","Milan"),("SERIEA","Juventus","Napoli"),("BUNDESLIGA","Bayern Munich","RB Leipzig"),("BUNDESLIGA","Borussia Dortmund","Bayer Leverkusen")]
             for code,home,away in fixtures:

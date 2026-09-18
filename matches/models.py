@@ -9,11 +9,53 @@ from django.db.models import Q
 from django.utils import timezone
 
 
+class Match50Season(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    starts_at = models.DateField()
+    ends_at = models.DateField()
+    is_active = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["is_active"], condition=Q(is_active=True), name="one_active_match50_season")]
+
+    def clean(self):
+        if self.ends_at < self.starts_at:
+            raise ValidationError("MATCH50 season end date cannot be before its start date.")
+        if self.is_active and Match50Season.objects.filter(is_active=True).exclude(pk=self.pk).exists():
+            raise ValidationError("Only one MATCH50 Season can be active at a time.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
+
 class Round(models.Model):
     name = models.CharField(max_length=100)
     is_active = models.BooleanField(default=False)
     match_count = models.PositiveIntegerField(default=30)
+    ranking_date = models.DateField(default=timezone.localdate)
+    match50_season = models.ForeignKey("Match50Season", null=True, blank=True, on_delete=models.SET_NULL, related_name="rounds")
     active_global_modifier = models.ForeignKey("GlobalModifier", null=True, blank=True, on_delete=models.SET_NULL, related_name="active_for_rounds")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["is_active"], condition=Q(is_active=True), name="one_active_round"
+            )
+        ]
+
+    def clean(self):
+        if self.is_active and Round.objects.filter(is_active=True).exclude(pk=self.pk).exists():
+            raise ValidationError("Only one Round can be active at a time.")
+        if self.match50_season_id and not (self.match50_season.starts_at <= self.ranking_date <= self.match50_season.ends_at):
+            raise ValidationError("Round ranking date must belong to its MATCH50 Season.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
@@ -68,11 +110,21 @@ class Draft(models.Model):
         if self.pairs.count() == 30 and not self.pairs.filter(resolved_at__isnull=True).exists():
             if now >= self.starts_at + timedelta(days=6) and self.modifier_options.count() == 3:
                 self.resolve_modifier()
-            self.populate_next_round()
+            if self.has_resolved_modifier():
+                self.populate_next_round()
+
+    def has_resolved_modifier(self):
+        return (
+            self.modifier_options.count() == 3
+            and self.winning_modifier_id is not None
+            and self.modifier_options.filter(pk=self.winning_modifier_id).exists()
+        )
 
     def populate_next_round(self):
         """Assign the 30 persisted winners to one newly created Round."""
         self.validate_ready()
+        if not self.has_resolved_modifier():
+            raise ValidationError("Draft needs three modifier candidates and a resolved winning modifier before creating the next Round.")
         winners = list(self.pairs.select_related("winner").order_by("day_number", "id"))
         if any(pair.winner_id is None for pair in winners):
             raise ValidationError("All Draft pairs must be resolved first.")
@@ -191,7 +243,24 @@ class Match(models.Model):
         editable=False,
     )
 
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(Q(home_goals__isnull=True, away_goals__isnull=True) | Q(home_goals__isnull=False, away_goals__isnull=False)),
+                name="match_score_is_complete_or_empty",
+            )
+        ]
+
+    def clean(self):
+        if (self.home_goals is None) != (self.away_goals is None):
+            raise ValidationError("A final result requires both home and away goals.")
+
     def save(self, *args, **kwargs):
+        previous = None
+        if self.pk:
+            previous = Match.objects.filter(pk=self.pk).values_list(
+                "home_goals", "away_goals", "status", "result"
+            ).first()
         if self.home_goals is not None and self.away_goals is not None:
             if self.home_goals > self.away_goals:
                 self.result = "1"
@@ -205,7 +274,23 @@ class Match(models.Model):
         if self.home_goals is not None and self.away_goals is not None:
             self.status = self.Status.FINISHED
 
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"status", "result"}
+        self.full_clean()
         super().save(*args, **kwargs)
+        current = (self.home_goals, self.away_goals, self.status, self.result)
+        if previous != current:
+            def recalculate_affected_scores(match_id=self.pk, round_id=self.round_id):
+                from matches.services.scoring import recalculate_round_scores
+                round_ids = set()
+                if round_id:
+                    round_ids.add(round_id)
+                round_ids.update(
+                    ChipAssignment.objects.filter(replacement_match_id=match_id).values_list("round_id", flat=True)
+                )
+                for affected_round_id in round_ids:
+                    recalculate_round_scores(Round.objects.get(pk=affected_round_id))
+            transaction.on_commit(recalculate_affected_scores)
 
     def __str__(self):
         return f"{self.home_team} - {self.away_team}"
@@ -283,8 +368,13 @@ class DraftPair(models.Model):
             self.day_number = pair_count // 5 + 1
         elif self._state.adding and self.draft_id and DraftPair.objects.filter(draft_id=self.draft_id).count() >= 30:
             raise ValidationError("A Draft can contain exactly 30 pairs.")
-        self.full_clean()
-        super().save(*args, **kwargs)
+        with transaction.atomic():
+            self.full_clean()
+            super().save(*args, **kwargs)
+            if self.match_a_id and self.match_b_id:
+                DraftPairCandidate.objects.filter(pair=self).exclude(match_id__in=[self.match_a_id, self.match_b_id]).delete()
+                DraftPairCandidate.objects.update_or_create(draft=self.draft, match_id=self.match_a_id, defaults={"pair": self, "side": "A"})
+                DraftPairCandidate.objects.update_or_create(draft=self.draft, match_id=self.match_b_id, defaults={"pair": self, "side": "B"})
 
     def vote_counts(self):
         return {
@@ -319,6 +409,24 @@ class DraftPair(models.Model):
             self.resolution_method = pair.resolution_method
             self.resolved_at = pair.resolved_at
             return self
+
+
+class DraftPairCandidate(models.Model):
+    """Normalized, unique membership of a candidate in a Draft."""
+    draft = models.ForeignKey(Draft, on_delete=models.CASCADE, related_name="candidate_memberships")
+    pair = models.ForeignKey(DraftPair, on_delete=models.CASCADE, related_name="candidate_memberships")
+    match = models.ForeignKey(Match, on_delete=models.PROTECT, related_name="draft_candidate_memberships")
+    side = models.CharField(max_length=1, choices=[("A", "A"), ("B", "B")])
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["draft", "match"], name="one_candidate_per_draft"),
+            models.UniqueConstraint(fields=["pair", "side"], name="one_candidate_per_pair_side"),
+        ]
+
+    def clean(self):
+        if self.pair_id and self.draft_id != self.pair.draft_id:
+            raise ValidationError("Candidate membership must use the pair's Draft.")
 
 
 class DraftVote(models.Model):
@@ -437,6 +545,8 @@ class ChipAssignment(models.Model):
     def clean(self):
         if self.match.round_id != self.round_id:
             raise ValidationError("Chip match must belong to its Round.")
+        if self._state.adding and not self.assignment_editable:
+            raise ValidationError("Chip assignments cannot be created at or after kickoff.")
         if self.pk and not self.assignment_editable:
             previous = ChipAssignment.objects.get(pk=self.pk)
             if (previous.chip, previous.match_id, previous.outcomes, previous.goal_team, previous.replacement_match_id) != (self.chip, self.match_id, self.outcomes, self.goal_team, self.replacement_match_id):

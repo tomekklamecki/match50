@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 
 from matches.models import ChipAssignment, Match, Prediction, UserRoundScore
+from matches.services.effective_match import resolve_effective_match
 
 
 def actual_outcome(match):
@@ -33,7 +34,7 @@ def recalculate_user_round_score(user, round_):
         chip = chips.get(original.id)
         # A round slot always scores one effective match.  With SWAP it is the
         # persisted Draft loser; the original remains only as an audit trail.
-        match = chip.replacement_match if chip and chip.chip == "SWAP" else original
+        match = resolve_effective_match(original, chip)
         prediction = predictions.get(match.id)
         choices = chip.outcomes if chip and chip.chip == "DOUBLE_PICK" else ([prediction.predicted_result] if prediction else [])
         item = {
