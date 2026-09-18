@@ -3,7 +3,7 @@ from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import path, reverse
 
-from .models import Draft, DraftPair, DraftVote, Match, Prediction, Round
+from .models import Competition, CompetitionSeason, Draft, DraftModifierVote, DraftPair, DraftVote, GlobalModifier, Match, Prediction, Round, Team
 
 
 @admin.register(Draft)
@@ -93,3 +93,8 @@ class DraftVoteAdmin(admin.ModelAdmin):
 admin.site.register(Match)
 admin.site.register(Round)
 admin.site.register(Prediction)
+admin.site.register(Team)
+admin.site.register(Competition)
+admin.site.register(CompetitionSeason)
+admin.site.register(GlobalModifier)
+admin.site.register(DraftModifierVote)

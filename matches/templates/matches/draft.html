@@ -14,6 +14,7 @@
   <div class="pair-foot meta">{% if pair.resolved_at %}WYNIK: {{ pair.get_resolution_method_display }}{% elif pair.is_open %}Zamknięcie: {{ pair.closes_at|date:"d.m. H:i" }}{% else %}Otwarcie: {{ pair.opens_at|date:"d.m. H:i" }}{% endif %}</div>
 </article>{% endfor %}
 </section>
+{% if modifier_options %}<section class="draft-head card" style="margin-top:18px"><div class="pill">GLOBAL MODIFIER — NASTĘPNA KOLEJKA</div><h2>Wybierz zasadę dla wszystkich graczy</h2><p>Wybierz zasadę, która będzie obowiązywać wszystkich graczy w następnej kolejce.</p>{% for modifier in modifier_options %}<div class="match-vote {% if modifier_vote.selected_modifier_id == modifier.id %}selected{% endif %}"><div><div class="teams">✦ {{ modifier.name }}</div><div class="meta">{{ modifier.description }}</div></div>{% if show_modifier_results %}<div class="ratio">{{ modifier.vote_percentage }}%</div>{% elif user.is_authenticated %}<form method="post" action="{% url 'draft_modifier_vote' modifier.id %}">{% csrf_token %}<button class="button vote-button">WYBIERZ</button></form>{% else %}<div class="ratio unknown">?%</div>{% endif %}</div>{% endfor %}</section>{% endif %}
 {% else %}<section class="empty card"><h1>DRAFT</h1><p>Brak aktywnego draftu.</p></section>{% endif %}
 {% if draft %}<script>
   const countdown=document.getElementById('draft-countdown');

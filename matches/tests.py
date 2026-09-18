@@ -7,7 +7,8 @@ from django.utils import timezone
 
 from django.core.exceptions import ValidationError
 
-from .models import Draft, DraftPair, DraftVote, Match, Prediction, Round
+from .models import ChipAssignment, Draft, DraftPair, DraftVote, Match, Prediction, Round
+from .services.scoring import recalculate_round_scores, recalculate_user_round_score
 
 
 class StageOnePredictionTests(TestCase):
@@ -251,3 +252,139 @@ class StageTwoDraftTests(TestCase):
         self.draft.refresh_from_db()
         self.assertFalse(self.draft.is_active)
         self.assertTrue(all(pair.winner_id in {pair.match_a_id, pair.match_b_id} for pair in DraftPair.objects.filter(draft=self.draft)))
+
+
+class StageThreeChipTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="chips", password="secret")
+        self.round = Round.objects.create(name="Chips", is_active=True)
+        self.matches = [Match.objects.create(round=self.round, league="L", home_team=f"H{i}", away_team=f"A{i}", kickoff=timezone.now() + timedelta(days=1)) for i in range(2)]
+
+    def test_chip_is_unique_per_type_and_match(self):
+        ChipAssignment.objects.create(user=self.user, round=self.round, chip="BANKER", match=self.matches[0])
+        with self.assertRaises(ValidationError):
+            ChipAssignment.objects.create(user=self.user, round=self.round, chip="BANKER", match=self.matches[1])
+        with self.assertRaises(ValidationError):
+            ChipAssignment.objects.create(user=self.user, round=self.round, chip="GOOOOOOOOAL", match=self.matches[0], goal_team=self.matches[0].home_team)
+
+    def test_double_pick_and_goal_team_validation(self):
+        with self.assertRaises(ValidationError):
+            ChipAssignment.objects.create(user=self.user, round=self.round, chip="DOUBLE_PICK", match=self.matches[0], outcomes=["1"])
+        chip = ChipAssignment.objects.create(user=self.user, round=self.round, chip="DOUBLE_PICK", match=self.matches[0], outcomes=["1", "X"])
+        self.assertEqual(chip.outcomes, ["1", "X"])
+        with self.assertRaises(ValidationError):
+            ChipAssignment.objects.create(user=self.user, round=self.round, chip="GOOOOOOOOAL", match=self.matches[1], goal_team="Other")
+
+
+class FinishedMatchCardTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="history", password="secret")
+        self.round = Round.objects.create(name="History", is_active=True)
+        self.client.force_login(self.user)
+
+    def match(self, home, away):
+        return Match.objects.create(
+            round=self.round, league="League", home_team=home, away_team=away,
+            kickoff=timezone.now() + timedelta(days=1),
+        )
+
+    def finish(self, match, home, away):
+        match.home_goals, match.away_goals = home, away
+        match.save()
+
+    def test_finished_card_keeps_independent_standard_and_goal_states(self):
+        match = self.match("Alpha", "Beta")
+        Prediction.objects.create(user=self.user, match=match, predicted_result="1", total_goals=2)
+        self.finish(match, 2, 1)
+        recalculate_round_scores(self.round)
+
+        response = self.client.get(reverse("typy"))
+        self.assertContains(response, "Alpha — Beta")
+        self.assertContains(response, "2 : 1")
+        self.assertContains(response, 'history-box hit')
+        self.assertContains(response, 'history-box miss')
+        score = self.user.round_scores.get(round=self.round)
+        self.assertEqual(score.total_points, 1)
+
+    def test_finished_card_shows_red_empty_goal_box_when_goals_were_not_predicted(self):
+        match = self.match("No Goals Home", "No Goals Away")
+        Prediction.objects.create(user=self.user, match=match, predicted_result="1")
+        self.finish(match, 1, 0)
+        recalculate_user_round_score(self.user, self.round)
+
+        response = self.client.get(reverse("typy"))
+        self.assertContains(response, '<div class="history-box miss"><span class="meta">GOLE</span></div>', html=True)
+
+    def test_clear_button_is_hidden_only_when_every_effective_match_is_settled(self):
+        settled = self.match("Settled Home", "Settled Away")
+        upcoming = self.match("Upcoming Home", "Upcoming Away")
+        self.finish(settled, 1, 0)
+
+        response = self.client.get(reverse("typy"))
+        self.assertFalse(response.context["round_is_closed"])
+        self.assertContains(response, '<button type="button" class="button secondary" id="clear-predictions">')
+        self.assertContains(response, '<button class="button lime" type="submit">ZAPISZ TYPY</button>')
+        self.assertContains(response, 'input[type=checkbox]:not(:disabled)')
+
+        self.finish(upcoming, 1, 0)
+        response = self.client.get(reverse("typy"))
+        self.assertTrue(response.context["round_is_closed"])
+        self.assertNotContains(response, '<button type="button" class="button secondary" id="clear-predictions">')
+        self.assertNotContains(response, '<button class="button lime" type="submit">ZAPISZ TYPY</button>')
+
+    def test_double_pick_and_chip_history_are_rendered_after_finish(self):
+        match = self.match("Gamma", "Delta")
+        ChipAssignment.objects.create(
+            user=self.user, round=self.round, chip="DOUBLE_PICK", match=match, outcomes=["1", "X"]
+        )
+        Prediction.objects.create(user=self.user, match=match, predicted_result="1")
+        self.finish(match, 0, 0)
+        recalculate_user_round_score(self.user, self.round)
+
+        response = self.client.get(reverse("typy"))
+        self.assertContains(response, "DOUBLE PICK")
+        self.assertContains(response, "1 + X")
+        self.assertContains(response, 'history-box hit')
+
+    def test_finished_cards_keep_banker_change_mind_and_goal_chip_configuration(self):
+        banker = self.match("Banker Home", "Banker Away")
+        mind = self.match("Mind Home", "Mind Away")
+        goal = self.match("Goal Home", "Goal Away")
+        ChipAssignment.objects.create(user=self.user, round=self.round, chip="BANKER", match=banker)
+        ChipAssignment.objects.create(user=self.user, round=self.round, chip="CHANGE_MIND", match=mind)
+        ChipAssignment.objects.create(user=self.user, round=self.round, chip="GOOOOOOOOAL", match=goal, goal_team="Goal Home")
+        for match in (banker, mind, goal):
+            Prediction.objects.create(user=self.user, match=match, predicted_result="1")
+            self.finish(match, 2, 0)
+        recalculate_user_round_score(self.user, self.round)
+
+        response = self.client.get(reverse("typy"))
+        self.assertContains(response, "BANKER")
+        self.assertContains(response, "I'VE CHANGED MY MIND")
+        self.assertContains(response, "GOOOOOOOOAL!")
+        self.assertContains(response, "Goal Home")
+        self.assertContains(response, "CHIPS 3/5")
+
+    def test_swap_card_uses_replacement_teams_result_and_scoring_state(self):
+        original = self.match("Original Home", "Original Away")
+        replacement = Match.objects.create(
+            league="League", home_team="Replacement Home", away_team="Replacement Away",
+            kickoff=timezone.now() + timedelta(days=1),
+        )
+        assignment = ChipAssignment.objects.create(user=self.user, round=self.round, chip="BANKER", match=original)
+        # The SWAP relationship itself is validated by Stage 3A.  This focused
+        # presentation test seeds its already-persisted shape without needing a
+        # full 30-pair Draft fixture.
+        ChipAssignment.objects.filter(pk=assignment.pk).update(chip="SWAP", replacement_match=replacement)
+        Prediction.objects.create(user=self.user, match=replacement, predicted_result="1", total_goals=4)
+        self.finish(original, 0, 0)
+        self.finish(replacement, 3, 1)
+        recalculate_user_round_score(self.user, self.round)
+
+        response = self.client.get(reverse("typy"))
+        self.assertContains(response, "Replacement Home — Replacement Away")
+        self.assertContains(response, "3 : 1")
+        self.assertContains(response, "Oryginalnie: Original Home — Original Away")
+        self.assertNotContains(response, "0 : 0")
+        score = self.user.round_scores.get(round=self.round)
+        self.assertEqual((score.typy_points, score.gole_points, score.total_points), (1, 1, 2))

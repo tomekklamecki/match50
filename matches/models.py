@@ -13,6 +13,7 @@ class Round(models.Model):
     name = models.CharField(max_length=100)
     is_active = models.BooleanField(default=False)
     match_count = models.PositiveIntegerField(default=30)
+    active_global_modifier = models.ForeignKey("GlobalModifier", null=True, blank=True, on_delete=models.SET_NULL, related_name="active_for_rounds")
 
     def __str__(self):
         return self.name
@@ -28,6 +29,10 @@ class Draft(models.Model):
     next_round = models.OneToOneField(
         Round, null=True, blank=True, on_delete=models.SET_NULL, related_name="source_draft"
     )
+    modifier_options = models.ManyToManyField("GlobalModifier", related_name="draft_options", blank=True)
+    winning_modifier = models.ForeignKey("GlobalModifier", null=True, blank=True, on_delete=models.SET_NULL, related_name="won_drafts")
+    modifier_resolved_at = models.DateTimeField(null=True, blank=True)
+    modifier_resolution_method = models.CharField(max_length=20, blank=True)
 
     class Meta:
         ordering = ["-starts_at", "-id"]
@@ -61,6 +66,8 @@ class Draft(models.Model):
             if now >= pair.closes_at:
                 pair.resolve()
         if self.pairs.count() == 30 and not self.pairs.filter(resolved_at__isnull=True).exists():
+            if now >= self.starts_at + timedelta(days=6) and self.modifier_options.count() == 3:
+                self.resolve_modifier()
             self.populate_next_round()
 
     def populate_next_round(self):
@@ -72,12 +79,59 @@ class Draft(models.Model):
         with transaction.atomic():
             if self.next_round_id is None:
                 self.next_round = Round.objects.create(
-                    name=self.next_round_name, is_active=False, match_count=30
+                    name=self.next_round_name, is_active=False, match_count=30, active_global_modifier=self.winning_modifier
                 )
                 self.is_active = False
                 self.save(update_fields=["next_round", "is_active"])
             Match.objects.filter(pk__in=[pair.winner_id for pair in winners]).update(round=self.next_round)
         return self.next_round
+
+    def resolve_modifier(self):
+        if self.winning_modifier_id:
+            return self.winning_modifier
+        options = list(self.modifier_options.all())
+        if len(options) != 3:
+            raise ValidationError("Draft needs exactly three modifier candidates.")
+        counts = {item.id: self.modifier_votes.filter(selected_modifier=item).count() for item in options}
+        high = max(counts.values())
+        leaders = [item for item in options if counts[item.id] == high]
+        self.winning_modifier = random.choice(leaders)
+        self.modifier_resolution_method = "VOTE" if len(leaders) == 1 else "RANDOM_TIEBREAK"
+        self.modifier_resolved_at = timezone.now()
+        self.save(update_fields=["winning_modifier", "modifier_resolution_method", "modifier_resolved_at"])
+        return self.winning_modifier
+
+
+class Team(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    short_name = models.CharField(max_length=30, blank=True)
+    active = models.BooleanField(default=True)
+    def __str__(self): return self.name
+
+
+class Competition(models.Model):
+    code = models.CharField(max_length=12, unique=True)
+    name = models.CharField(max_length=100)
+    country = models.CharField(max_length=100)
+    active = models.BooleanField(default=True)
+    def __str__(self): return self.name
+
+
+class CompetitionSeason(models.Model):
+    competition = models.ForeignKey(Competition, on_delete=models.CASCADE, related_name="seasons")
+    season_label = models.CharField(max_length=20)
+    champion_team = models.ForeignKey(Team, null=True, blank=True, on_delete=models.SET_NULL, related_name="champion_seasons")
+    active = models.BooleanField(default=True)
+    class Meta: constraints=[models.UniqueConstraint(fields=["competition","season_label"],name="unique_competition_season")]
+    def __str__(self): return f"{self.competition} {self.season_label}"
+
+
+class GlobalModifier(models.Model):
+    code = models.CharField(max_length=30, unique=True)
+    name = models.CharField(max_length=100)
+    description = models.TextField()
+    enabled = models.BooleanField(default=True)
+    def __str__(self): return self.name
 
 
 class Match(models.Model):
@@ -94,6 +148,9 @@ class Match(models.Model):
         null=True,
         blank=True,
     )
+    competition_season = models.ForeignKey("CompetitionSeason", null=True, blank=True, on_delete=models.SET_NULL, related_name="matches")
+    home_team_entity = models.ForeignKey("Team", null=True, blank=True, on_delete=models.SET_NULL, related_name="home_matches")
+    away_team_entity = models.ForeignKey("Team", null=True, blank=True, on_delete=models.SET_NULL, related_name="away_matches")
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.UPCOMING)
 
     @property
@@ -286,6 +343,22 @@ class DraftVote(models.Model):
         super().save(*args, **kwargs)
 
 
+class DraftModifierVote(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    draft = models.ForeignKey(Draft, on_delete=models.CASCADE, related_name="modifier_votes")
+    selected_modifier = models.ForeignKey(GlobalModifier, on_delete=models.PROTECT)
+    created_at = models.DateTimeField(auto_now_add=True)
+    class Meta:
+        constraints=[models.UniqueConstraint(fields=["user","draft"],name="one_modifier_vote_per_draft")]
+    def clean(self):
+        if not self.draft.modifier_options.filter(pk=self.selected_modifier_id).exists():
+            raise ValidationError("Modifier must be a Draft candidate.")
+        if self.pk or timezone.now() >= self.draft.starts_at + timedelta(days=6):
+            raise ValidationError("Modifier voting is closed.")
+    def save(self,*args,**kwargs):
+        self.full_clean(); super().save(*args,**kwargs)
+
+
 class Prediction(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -325,3 +398,80 @@ class Prediction(models.Model):
 
     def __str__(self):
         return f"{self.user} - {self.match} - {self.predicted_result}"
+
+
+class ChipAssignment(models.Model):
+    class Chip(models.TextChoices):
+        BANKER = "BANKER", "Banker"
+        DOUBLE_PICK = "DOUBLE_PICK", "Double Pick"
+        CHANGE_MIND = "CHANGE_MIND", "I've Changed My Mind"
+        SWAP = "SWAP", "Swap"
+        GOOOOOOOAL = "GOOOOOOOOAL", "Goooooooal!"
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    round = models.ForeignKey(Round, on_delete=models.CASCADE, related_name="chip_assignments")
+    chip = models.CharField(max_length=16, choices=Chip.choices)
+    match = models.ForeignKey(Match, on_delete=models.CASCADE, related_name="chip_assignments")
+    outcomes = models.JSONField(default=list, blank=True)
+    goal_team = models.CharField(max_length=100, blank=True)
+    replacement_match = models.ForeignKey(Match, null=True, blank=True, on_delete=models.PROTECT, related_name="swap_replacements")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "round", "chip"], name="one_chip_type_per_round"),
+            models.UniqueConstraint(fields=["user", "round", "match"], name="one_chip_per_match_round"),
+        ]
+
+    @property
+    def assignment_editable(self):
+        return timezone.now() < self.match.kickoff
+
+    @property
+    def prediction_editable(self):
+        if self.chip == self.Chip.CHANGE_MIND:
+            return timezone.now() < self.match.kickoff + timedelta(minutes=60)
+        return timezone.now() < self.match.kickoff
+
+    def clean(self):
+        if self.match.round_id != self.round_id:
+            raise ValidationError("Chip match must belong to its Round.")
+        if self.pk and not self.assignment_editable:
+            previous = ChipAssignment.objects.get(pk=self.pk)
+            if (previous.chip, previous.match_id, previous.outcomes, previous.goal_team, previous.replacement_match_id) != (self.chip, self.match_id, self.outcomes, self.goal_team, self.replacement_match_id):
+                raise ValidationError("Chip assignment is locked at kickoff.")
+        if self.chip == self.Chip.DOUBLE_PICK and set(self.outcomes) not in ({"1", "X"}, {"1", "2"}, {"X", "2"}):
+            raise ValidationError("Double Pick requires exactly two different outcomes.")
+        if self.chip == self.Chip.GOOOOOOOAL and self.goal_team not in {self.match.home_team, self.match.away_team}:
+            raise ValidationError("Choose one team from this match for Goooooooal.")
+        if self.chip == self.Chip.SWAP:
+            pair = DraftPair.objects.filter(winner=self.match, resolved_at__isnull=False).first()
+            if not pair:
+                raise ValidationError("Swap requires a persisted Draft loser for this match.")
+            loser_id = pair.match_b_id if pair.match_a_id == self.match_id else pair.match_a_id
+            if self.replacement_match_id != loser_id or timezone.now() >= self.replacement_match.kickoff:
+                raise ValidationError("Swap replacement must be the unstarted loser of this Draft pair.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+
+class UserRoundScore(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="round_scores")
+    round = models.ForeignKey(Round, on_delete=models.CASCADE, related_name="user_scores")
+    typy_points = models.IntegerField(default=0)
+    gole_points = models.IntegerField(default=0)
+    bonus_points = models.IntegerField(default=0)
+    total_points = models.IntegerField(default=0)
+    breakdown = models.JSONField(default=list, blank=True)
+    calculated_at = models.DateTimeField(auto_now=True)
+    class Meta: constraints=[models.UniqueConstraint(fields=["user","round"],name="one_user_round_score")]
+    def save(self,*args,**kwargs):
+        self.total_points=self.typy_points+self.gole_points+self.bonus_points
+        # update_or_create supplies update_fields.  Include the derived total
+        # explicitly so it is persisted rather than only updated in memory.
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"total_points"}
+        super().save(*args,**kwargs)
