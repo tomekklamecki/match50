@@ -1,0 +1,127 @@
+from django.core.paginator import Paginator
+from matches.models import ChipAssignment, Competition, Match, Match50Season, Prediction, Round, TrophyFinish, UserAchievement, UserRoundScore
+from matches.services.match_cards import prepare_settled_match
+from matches.services.player_statistics import calculate_player_statistics
+from matches.services.rankings import month_ranking, round_ranking, season_ranking
+from matches.services.streaks import typy_streaks
+
+
+def _is_completed_round(round_):
+    matches = list(round_.matches.all())
+    return bool(matches) and all(match.status in {Match.Status.FINISHED, Match.Status.CANCELLED} for match in matches)
+
+
+def public_history(user, page=1, competition=None, result=None, round_id=None):
+    """Build history in complete Round-sized groups, never Prediction rows."""
+    assignments = {
+        (item.round_id, item.match_id): item
+        for item in ChipAssignment.objects.filter(user=user).select_related("replacement_match")
+    }
+    all_candidates = list(
+        Round.objects.prefetch_related("matches__competition_season__competition")
+        .order_by("-ranking_date", "-id")
+    )
+    all_candidates = [round_ for round_ in all_candidates if _is_completed_round(round_)]
+    candidates = all_candidates
+    if round_id:
+        candidates = [round_ for round_ in candidates if str(round_.id) == str(round_id)]
+
+    groups = []
+    for round_ in candidates:
+        score = UserRoundScore.objects.filter(user=user, round=round_).first()
+        score_by_match = {item.get("match", item.get("effective_match")): item for item in score.breakdown} if score else {}
+        predictions = {}
+        slots = []
+        for original in round_.matches.all().order_by("kickoff", "id"):
+            assignment = assignments.get((round_.id, original.id))
+            effective = assignment.replacement_match if assignment and assignment.chip == ChipAssignment.Chip.SWAP else original
+            if effective.id not in predictions:
+                predictions[effective.id] = Prediction.objects.filter(user=user, match=effective).first()
+            slot = prepare_settled_match(original, assignment, predictions[effective.id], score_by_match.get(effective.id))
+            slots.append(slot)
+
+        # A league filter narrows the displayed matches inside every completed
+        # round.  It must not merely select rounds which happen to contain the
+        # league, because the profile then still showed unrelated fixtures.
+        if competition:
+            slots = [
+                slot for slot in slots
+                if slot.effective_match.competition_season
+                and slot.effective_match.competition_season.competition.code == competition
+            ]
+            if not slots:
+                continue
+        if result:
+            predicted_slots = [slot for slot in slots if slot.saved_prediction]
+            if result == "hit" and not any(slot.standard_score_state == "hit" for slot in predicted_slots):
+                continue
+            if result == "miss" and not any(slot.standard_score_state == "miss" for slot in predicted_slots):
+                continue
+        ranking = next((entry for entry in round_ranking(round_) if entry.user_id == user.id), None)
+        groups.append({
+            "round": round_, "score": score, "rank": ranking.rank if ranking else None,
+            "slots": slots,
+            "starts_at": min(slot.effective_match.kickoff for slot in slots),
+            "ends_at": max(slot.effective_match.kickoff for slot in slots),
+        })
+    # History is reviewed one complete Round at a time.  Filters narrow the
+    # displayed match slots but do not change this chronological navigation.
+    return Paginator(groups, 1).get_page(page), all_candidates
+
+
+def _progress(value, thresholds):
+    """Return display state from the player's real metric, not unlocked tiers."""
+    current = next((tier for tier, threshold in reversed(thresholds) if value >= threshold), None)
+    next_item = next(((tier, threshold) for tier, threshold in thresholds if value < threshold), None)
+    target = next_item[1] if next_item else thresholds[-1][1]
+    return {
+        "tier": current or "—",
+        "progress": value,
+        "next": next_item,
+        "percent": min(100, round((value / target) * 100)) if target else 0,
+    }
+
+
+def _performance_entry(entries, user):
+    entry = next((item for item in entries if item.user_id == user.id), None)
+    return {"points": entry.total if entry else 0, "rank": entry.rank if entry else None}
+
+
+def current_performance(user):
+    current_round = Round.objects.filter(is_active=True).order_by("id").first()
+    reference_date = current_round.ranking_date if current_round else None
+    season = current_round.match50_season if current_round else Match50Season.objects.filter(is_active=True).first()
+    return {
+        "round": _performance_entry(round_ranking(current_round), user) if current_round else {"points": 0, "rank": None},
+        "month": _performance_entry(month_ranking(reference_date.year, reference_date.month), user) if reference_date else {"points": 0, "rank": None},
+        "season": _performance_entry(season_ranking(season), user) if season else {"points": 0, "rank": None},
+    }
+
+def profile_data(user, page=1, competition=None, result=None, round_id=None):
+    unlocks=list(UserAchievement.objects.filter(user=user).select_related("achievement").order_by("-unlocked_at"))
+    tiers=[("BRONZE",10),("SILVER",15),("GOLD",20),("PLATINUM",25),("DIAMOND",30)]
+    league_codes=[("EPL","Premier League"),("LALIGA","La Liga"),("BUNDESLIGA","Bundesliga"),("SERIEA","Serie A"),("LIGUE1","Ligue 1"),("EKSTRAKLASA","Ekstraklasa"),("UCL","Champions League"),("UEL","Europa League"),("UECL","Conference League")]
+    trophy_rows=[]; trophies=TrophyFinish.objects.filter(user=user)
+    for scope,label in (("ROUND","KOLEJKI"),("MONTH","MIESIĄCE"),("SEASON","SEZONY")):
+        trophy_rows.append({"label":label,"gold":trophies.filter(scope=scope,rank=1).count(),"silver":trophies.filter(scope=scope,rank=2).count(),"bronze":trophies.filter(scope=scope,rank=3).count()})
+    scores=list(UserRoundScore.objects.filter(user=user).select_related("round"))
+    completed_scores = [
+        score for score in scores
+        if not score.round.matches.exclude(status__in=[Match.Status.FINISHED, Match.Status.CANCELLED]).exists()
+    ]
+    gole_tiers=[("BRONZE",2),("SILVER",4),("GOLD",6),("PLATINUM",8),("DIAMOND",10)]
+    repeat_tiers=[("BRONZE",2),("SILVER",4),("GOLD",10),("PLATINUM",20),("DIAMOND",50)]
+    streak_tiers=[("BRONZE",3),("SILVER",8),("GOLD",15),("PLATINUM",22),("DIAMOND",30)]
+    paths={
+        "typy": _progress(max([score.typy_points for score in completed_scores] or [0]), tiers),
+        "gole": _progress(max([score.gole_points for score in completed_scores] or [0]), gole_tiers),
+        "typy_again": _progress(sum(score.typy_points >= 20 for score in completed_scores), repeat_tiers),
+        "gole_again": _progress(sum(score.gole_points >= 6 for score in completed_scores), repeat_tiers),
+        "streak": _progress(typy_streaks(user)["max_streak"], streak_tiers),
+    }
+    mastery=[]
+    for code,name in league_codes:
+        data=_progress(sum(1 for score in completed_scores for item in score.breakdown if item.get("typy") and Match.objects.filter(pk=item.get("effective_match"),competition_season__competition__code=code).exists()), [("BRONZE",10),("SILVER",25),("GOLD",50),("PLATINUM",100),("DIAMOND",250)])
+        mastery.append({"code":code,"name":name,"data":data})
+    history, history_rounds = public_history(user, page, competition, result, round_id)
+    return {"statistics":calculate_player_statistics(user), "streaks":typy_streaks(user), "performance":current_performance(user), "history":history, "history_rounds":history_rounds, "achievements":unlocks, "trophies":trophy_rows, "paths":paths, "mastery":mastery, "competitions":Competition.objects.order_by("name")}

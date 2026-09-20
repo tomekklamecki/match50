@@ -38,6 +38,8 @@ class Round(models.Model):
     match_count = models.PositiveIntegerField(default=30)
     ranking_date = models.DateField(default=timezone.localdate)
     match50_season = models.ForeignKey("Match50Season", null=True, blank=True, on_delete=models.SET_NULL, related_name="rounds")
+    early_bird_user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="early_bird_rounds")
+    early_bird_at = models.DateTimeField(null=True, blank=True)
     active_global_modifier = models.ForeignKey("GlobalModifier", null=True, blank=True, on_delete=models.SET_NULL, related_name="active_for_rounds")
 
     class Meta:
@@ -107,6 +109,12 @@ class Draft(models.Model):
         for pair in self.pairs.select_for_update().filter(resolved_at__isnull=True):
             if now >= pair.closes_at:
                 pair.resolve()
+        # Winners are the only fixtures that enter the future Round.  This is
+        # intentionally progressive: unresolved candidates remain Draft-only.
+        resolved_winner_ids = list(self.pairs.filter(resolved_at__isnull=False).values_list("winner_id", flat=True))
+        if resolved_winner_ids:
+            future = self.ensure_future_round()
+            Match.objects.filter(pk__in=resolved_winner_ids).update(round=future)
         if self.pairs.count() == 30 and not self.pairs.filter(resolved_at__isnull=True).exists():
             if now >= self.starts_at + timedelta(days=6) and self.modifier_options.count() == 3:
                 self.resolve_modifier()
@@ -135,8 +143,22 @@ class Draft(models.Model):
                 )
                 self.is_active = False
                 self.save(update_fields=["next_round", "is_active"])
+            elif self.next_round.active_global_modifier_id != self.winning_modifier_id:
+                self.next_round.active_global_modifier = self.winning_modifier
+                self.next_round.save(update_fields=["active_global_modifier"])
             Match.objects.filter(pk__in=[pair.winner_id for pair in winners]).update(round=self.next_round)
         return self.next_round
+
+    def ensure_future_round(self):
+        if self.next_round_id:
+            return self.next_round
+        with transaction.atomic():
+            draft = Draft.objects.select_for_update().get(pk=self.pk)
+            if draft.next_round_id is None:
+                draft.next_round = Round.objects.create(name=draft.next_round_name, is_active=False, match_count=30)
+                draft.save(update_fields=["next_round"])
+            self.next_round = draft.next_round
+            return draft.next_round
 
     def resolve_modifier(self):
         if self.winning_modifier_id:
@@ -204,6 +226,7 @@ class Match(models.Model):
     home_team_entity = models.ForeignKey("Team", null=True, blank=True, on_delete=models.SET_NULL, related_name="home_matches")
     away_team_entity = models.ForeignKey("Team", null=True, blank=True, on_delete=models.SET_NULL, related_name="away_matches")
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.UPCOMING)
+    finished_at = models.DateTimeField(null=True, blank=True)
 
     @property
     def current_status(self):
@@ -273,6 +296,8 @@ class Match(models.Model):
 
         if self.home_goals is not None and self.away_goals is not None:
             self.status = self.Status.FINISHED
+            if self.finished_at is None:
+                self.finished_at = timezone.now()
 
         if kwargs.get("update_fields") is not None:
             kwargs["update_fields"] = set(kwargs["update_fields"]) | {"status", "result"}
@@ -347,6 +372,14 @@ class DraftPair(models.Model):
                     errors["match_a"] = "A candidate match can belong to only one pair in a Draft."
             if Match.objects.filter(pk__in=[self.match_a_id, self.match_b_id], round__is_active=True).exists():
                 errors["match_a"] = "Matches from the active prediction round cannot be Draft candidates."
+            previous = Round.objects.filter(is_active=False).order_by("-ranking_date", "-id")
+            previous = next((round_ for round_ in previous if round_.matches.exists() and not round_.matches.exclude(status__in=[Match.Status.FINISHED, Match.Status.CANCELLED]).exists()), None)
+            # Completed development provenance is created retrospectively for
+            # already-finished DEV history.  The exclusion remains strict for
+            # every operational/current Draft.
+            is_historical_seed = self.draft_id and self.draft.name.startswith("DEV HISTORY ORIGIN ")
+            if previous and not is_historical_seed and Match.objects.filter(pk__in=[self.match_a_id, self.match_b_id], round=previous).exists():
+                errors["match_a"] = "Matches from the previous completed round cannot be Draft candidates."
         if self.draft_id:
             siblings = DraftPair.objects.filter(draft_id=self.draft_id).exclude(pk=self.pk)
             if siblings.count() >= 30:
@@ -585,3 +618,47 @@ class UserRoundScore(models.Model):
         if kwargs.get("update_fields") is not None:
             kwargs["update_fields"] = set(kwargs["update_fields"]) | {"total_points"}
         super().save(*args,**kwargs)
+
+
+class Achievement(models.Model):
+    code = models.CharField(max_length=80, unique=True)
+    name = models.CharField(max_length=120)
+    description = models.TextField()
+    category = models.CharField(max_length=40)
+    tier = models.CharField(max_length=20, blank=True)
+    hidden = models.BooleanField(default=False)
+    metadata = models.JSONField(default=dict, blank=True)
+    def __str__(self): return self.name
+
+
+class UserAchievement(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="achievements")
+    achievement = models.ForeignKey(Achievement, on_delete=models.CASCADE, related_name="unlocks")
+    unlocked_at = models.DateTimeField(auto_now_add=True)
+    round = models.ForeignKey(Round, null=True, blank=True, on_delete=models.SET_NULL)
+    match = models.ForeignKey(Match, null=True, blank=True, on_delete=models.SET_NULL)
+    context_data = models.JSONField(default=dict, blank=True)
+    notified_at = models.DateTimeField(null=True, blank=True)
+    class Meta: constraints=[models.UniqueConstraint(fields=["user","achievement"],name="one_user_achievement")]
+
+
+class TrophyFinish(models.Model):
+    class Scope(models.TextChoices): ROUND="ROUND"; MONTH="MONTH"; SEASON="SEASON"
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="trophies")
+    scope = models.CharField(max_length=10, choices=Scope.choices)
+    period_key = models.CharField(max_length=80)
+    rank = models.PositiveSmallIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    class Meta: constraints=[models.UniqueConstraint(fields=["user","scope","period_key"],name="one_trophy_per_period")]
+
+
+class MatchKickoffSnapshot(models.Model):
+    match = models.OneToOneField(Match, on_delete=models.CASCADE, related_name="kickoff_snapshot")
+    counts = models.JSONField(default=dict)
+    captured_at = models.DateTimeField(auto_now_add=True)
+
+
+class AchievementNotification(models.Model):
+    user_achievement = models.OneToOneField(UserAchievement, on_delete=models.CASCADE, related_name="notification")
+    created_at = models.DateTimeField(auto_now_add=True)
+    consumed_at = models.DateTimeField(null=True, blank=True)

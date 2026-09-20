@@ -74,6 +74,10 @@ def recalculate_user_round_score(user, round_):
         breakdown.append(item)
     with transaction.atomic():
         score,_=UserRoundScore.objects.update_or_create(user=user,round=round_,defaults={"typy_points":typy,"gole_points":gole,"bonus_points":bonus,"total_points":typy+gole+bonus,"breakdown":breakdown})
+    from matches.services.achievements import evaluate_user, evaluate_trophies
+    evaluate_user(user)
+    if not round_.matches.exclude(status__in=[Match.Status.FINISHED, Match.Status.CANCELLED]).exists():
+        evaluate_trophies(round_)
     return score
 
 

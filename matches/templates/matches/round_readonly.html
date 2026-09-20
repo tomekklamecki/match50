@@ -1,0 +1,32 @@
+{% extends "matches/base.html" %}
+{% load static prediction_labels %}
+{% block content %}
+<style>
+  .readonly-intro{padding:18px;margin-bottom:10px}.readonly-intro nav{line-height:1.8}.readonly-intro nav a{color:var(--navy);font-size:12px;font-weight:800;text-underline-offset:4px}.readonly-intro .meta{font-size:12px;color:var(--muted);font-weight:800;letter-spacing:.02em}.readonly-modifier{display:flex;align-items:flex-start;gap:10px;margin-top:12px;padding:11px 13px;border-radius:10px;background:#f4fbdc;border-left:4px solid var(--lime)}.readonly-modifier-mark{font-size:20px;line-height:1}.readonly-modifier strong{display:block;font-size:13px}.readonly-modifier p{margin:3px 0 0;font-size:12px;color:var(--muted);font-weight:700}.readonly-score{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:10px}.readonly-score-item{padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:#fafbfd}.readonly-score-item span{display:block;font-size:10px;color:var(--muted);font-weight:900;letter-spacing:.04em}.readonly-score-item strong{display:block;margin-top:2px;font-size:18px;line-height:1}.readonly-score-item.total{background:var(--navy);border-color:var(--navy);color:#fff}.readonly-score-item.total span{color:#dce6ff}@media(max-width:600px){.readonly-score{gap:5px}.readonly-score-item{padding:9px 7px}.readonly-score-item strong{font-size:16px}.readonly-score-item span{font-size:9px}.readonly-modifier{margin-top:9px}}
+</style>
+
+<section class="readonly-intro card">
+  <nav><a href="{% url 'typy' %}">AKTUALNA KOLEJKA</a> · <a href="{% url 'typy' %}?tab=previous">POPRZEDNIA KOLEJKA</a> · <a href="{% url 'typy' %}?tab=future">PRZYSZŁA KOLEJKA</a></nav>
+  <div class="meta">RUNDA: {% if round %}{{ round.name }}{% else %}{{ title }}{% endif %}</div>
+  {% if active_modifier %}<div class="readonly-modifier"><span class="readonly-modifier-mark">✦</span><div><strong>GLOBAL MODIFIER: {{ active_modifier.name }}</strong><p>{{ active_modifier.description }}</p></div></div>{% endif %}
+</section>
+
+{% if round and title == 'POPRZEDNIA KOLEJKA' and user.is_authenticated %}
+<section class="readonly-intro card">
+  <div class="meta">TWÓJ WYNIK RUNDY</div>
+  <div class="readonly-score"><div class="readonly-score-item"><span>TYPY</span><strong>{{ score.typy_points|default:0 }}</strong></div><div class="readonly-score-item"><span>GOLE</span><strong>{{ score.gole_points|default:0 }}</strong></div><div class="readonly-score-item"><span>BONUSY</span><strong>{{ score.bonus_points|default:0 }}</strong></div><div class="readonly-score-item total"><span>TOTAL</span><strong>{{ score.total_points|default:0 }}</strong></div></div>
+</section>
+{% endif %}
+
+{% if round %}
+  {% for match in matches %}
+    {% if settled %}
+      {% include "matches/_current_match_row.html" %}
+    {% else %}
+      <article class="card" style="padding:14px;margin-top:10px"><small>{{ match.kickoff|date:"d.m.Y H:i" }} · {{ match.league|league_label }}</small><br><strong>{{ match.home_team }}{% if match.status == 'FINISHED' %} {{ match.home_goals }} : {{ match.away_goals }} {% else %} — {% endif %}{{ match.away_team }}</strong></article>
+    {% endif %}
+  {% empty %}<p>Jeszcze nie wybrano żadnego meczu.</p>{% endfor %}
+{% else %}<p>Brak dostępnej kolejki.</p>{% endif %}
+
+<link rel="stylesheet" href="{% static 'matches/predictions.css' %}">
+{% endblock %}

@@ -9,10 +9,14 @@ from django.core.exceptions import ValidationError
 from django.db import DatabaseError
 from unittest.mock import patch
 
-from .models import ChipAssignment, Draft, DraftPair, DraftVote, GlobalModifier, Match, Match50Season, Prediction, Round, UserRoundScore
+from .models import Achievement, ChipAssignment, Competition, CompetitionSeason, Draft, DraftPair, DraftVote, GlobalModifier, Match, Match50Season, MatchKickoffSnapshot, Prediction, Round, Team, UserAchievement, UserRoundScore
 from .services.scoring import recalculate_round_scores, recalculate_user_round_score
 from .services.player_statistics import calculate_player_statistics
 from .services.rankings import month_ranking, round_ranking, season_ranking, top_with_current
+from .services.achievements import evaluate_snapshot_achievements, evaluate_trophies
+from .services.profile import current_performance, profile_data, public_history
+from .services.effective_match import draft_loser_for_winner
+from .management.commands.seed_dev_data import Command as SeedDevDataCommand
 
 
 class StageOnePredictionTests(TestCase):
@@ -311,9 +315,10 @@ class FinishedMatchCardTests(TestCase):
 
         response = self.client.get(reverse("typy"))
         self.assertContains(response, "Alpha — Beta")
-        self.assertContains(response, "2 : 1")
-        self.assertContains(response, 'history-box hit')
-        self.assertContains(response, 'history-box miss')
+        self.assertContains(response, "2:1")
+        self.assertContains(response, 'data-current-state="finished"')
+        self.assertContains(response, 'current-stat hit')
+        self.assertContains(response, 'current-stat miss')
         score = self.user.round_scores.get(round=self.round)
         self.assertEqual(score.total_points, 1)
 
@@ -324,15 +329,17 @@ class FinishedMatchCardTests(TestCase):
         recalculate_user_round_score(self.user, self.round)
 
         response = self.client.get(reverse("typy"))
-        self.assertContains(response, '<div class="history-box miss"><span class="meta">GOLE</span></div>', html=True)
+        self.assertContains(response, '<div class="current-stat neutral"><span>GOLE</span><strong>—</strong></div>', html=True)
 
-    def test_clear_button_is_hidden_only_when_every_effective_match_is_settled(self):
+    def test_prediction_toolbar_follows_existing_match_editability(self):
         settled = self.match("Settled Home", "Settled Away")
         upcoming = self.match("Upcoming Home", "Upcoming Away")
         self.finish(settled, 1, 0)
 
         response = self.client.get(reverse("typy"))
         self.assertFalse(response.context["round_is_closed"])
+        self.assertTrue(response.context["has_editable_matches"])
+        self.assertContains(response, 'id="prediction-toolbar"')
         self.assertContains(response, '<button type="button" class="button secondary" id="clear-predictions">')
         self.assertContains(response, '<button class="button lime" type="submit">ZAPISZ TYPY</button>')
         self.assertContains(response, 'input[type=checkbox]:not(:disabled)')
@@ -340,8 +347,47 @@ class FinishedMatchCardTests(TestCase):
         self.finish(upcoming, 1, 0)
         response = self.client.get(reverse("typy"))
         self.assertTrue(response.context["round_is_closed"])
+        self.assertFalse(response.context["has_editable_matches"])
+        self.assertContains(response, 'id="prediction-toolbar"')
+        self.assertNotContains(response, 'data-view="card"')
         self.assertNotContains(response, '<button type="button" class="button secondary" id="clear-predictions">')
         self.assertNotContains(response, '<button class="button lime" type="submit">ZAPISZ TYPY</button>')
+
+        locked = self.match("Locked Home", "Locked Away")
+        locked.kickoff = timezone.now() - timedelta(minutes=5)
+        locked.save(update_fields=["kickoff"])
+        response = self.client.get(reverse("typy"))
+        self.assertFalse(response.context["round_is_closed"])
+        self.assertFalse(response.context["has_editable_matches"])
+        self.assertContains(response, 'id="prediction-toolbar"')
+        self.assertNotContains(response, 'data-view="card"')
+
+    def test_current_round_mixes_editable_locked_and_finished_compact_rows(self):
+        editable = self.match("Editable Home", "Editable Away")
+        locked = self.match("Locked Home", "Locked Away")
+        finished = self.match("Finished Home", "Finished Away")
+        Prediction.objects.create(user=self.user, match=locked, predicted_result="2")
+        locked.kickoff = timezone.now() - timedelta(minutes=5)
+        locked.save()
+        self.finish(finished, 2, 0)
+
+        response = self.client.get(reverse("typy"))
+        self.assertContains(response, f'data-match-id="{editable.id}" data-prediction-card="true"')
+        self.assertContains(response, 'data-current-state="locked"')
+        self.assertContains(response, 'data-current-state="finished"')
+        self.assertContains(response, "Locked Home — Locked Away")
+        self.assertContains(response, "Finished Home — Finished Away")
+        self.assertEqual(response.content.decode().count('class="history-row"'), 0)
+
+        change_mind = ChipAssignment.objects.create(user=self.user, round=self.round, chip="CHANGE_MIND", match=editable)
+        editable.kickoff = timezone.now() - timedelta(minutes=5)
+        editable.save()
+        response = self.client.get(reverse("typy"))
+        self.assertTrue(response.context["has_editable_matches"])
+        self.assertContains(response, 'id="prediction-toolbar"')
+        self.assertContains(response, f'data-match-id="{editable.id}" data-prediction-card="true"')
+        change_mind.refresh_from_db()
+        self.assertTrue(change_mind.prediction_editable)
 
     def test_double_pick_and_chip_history_are_rendered_after_finish(self):
         match = self.match("Gamma", "Delta")
@@ -355,7 +401,7 @@ class FinishedMatchCardTests(TestCase):
         response = self.client.get(reverse("typy"))
         self.assertContains(response, "DOUBLE PICK")
         self.assertContains(response, "1 + X")
-        self.assertContains(response, 'history-box hit')
+        self.assertContains(response, 'current-stat hit')
 
     def test_finished_cards_keep_banker_change_mind_and_goal_chip_configuration(self):
         banker = self.match("Banker Home", "Banker Away")
@@ -374,7 +420,7 @@ class FinishedMatchCardTests(TestCase):
         self.assertContains(response, "I'VE CHANGED MY MIND")
         self.assertContains(response, "GOOOOOOOOAL!")
         self.assertContains(response, "Goal Home")
-        self.assertContains(response, "CHIPS 3/5")
+        self.assertContains(response, 'id="chip-progress"')
 
     def test_swap_card_uses_replacement_teams_result_and_scoring_state(self):
         original = self.match("Original Home", "Original Away")
@@ -394,9 +440,9 @@ class FinishedMatchCardTests(TestCase):
 
         response = self.client.get(reverse("typy"))
         self.assertContains(response, "Replacement Home — Replacement Away")
-        self.assertContains(response, "3 : 1")
+        self.assertContains(response, "3:1")
         self.assertContains(response, "Oryginalnie: Original Home — Original Away")
-        self.assertNotContains(response, "0 : 0")
+        self.assertContains(response, 'class="current-score"><span>WYNIK</span><strong>3:1</strong></div>')
         score = self.user.round_scores.get(round=self.round)
         self.assertEqual((score.typy_points, score.gole_points, score.total_points), (1, 1, 2))
 
@@ -595,3 +641,206 @@ class RankingTests(TestCase):
         top, current = top_with_current(entries, users[-1])
         self.assertEqual(len(top), 100)
         self.assertEqual((current.username, current.rank), ("rank100", 101))
+
+    def test_profile_current_performance_uses_existing_ranking_sources(self):
+        self.round.is_active = True
+        self.round.save(update_fields=["is_active"])
+        player = self.score("performance", 4, 2, 1)
+        self.score("round_leader", 8, 1, 1)
+        completed = Round.objects.create(name="Completed", ranking_date=timezone.localdate(), match50_season=self.season, match_count=1)
+        Match.objects.create(round=completed, league="L", home_team="A", away_team="B", kickoff=timezone.now()-timedelta(days=1), home_goals=1, away_goals=0)
+        UserRoundScore.objects.create(user=player, round=completed, typy_points=10, gole_points=2, total_points=12)
+
+        performance = current_performance(player)
+
+        self.assertEqual(performance["round"], {"points": 7, "rank": 2})
+        self.assertEqual(performance["month"], {"points": 12, "rank": 1})
+        self.assertEqual(performance["season"], {"points": 12, "rank": 1})
+
+
+class FinalStageSixTests(TestCase):
+    def setUp(self):
+        self.user=get_user_model().objects.create_user(username="stage6",password="secret")
+        self.round=Round.objects.create(name="Stage 6",is_active=True)
+
+    def test_early_bird_is_unique(self):
+        self.client.force_login(self.user)
+        match=Match.objects.create(round=self.round,league="L",home_team="A",away_team="B",kickoff=timezone.now()+timedelta(days=1))
+        response=self.client.post(reverse("typy"),{f"result_{match.id}":"1","confirm_less_than_ten":"1"})
+        self.assertRedirects(response,reverse("typy")); self.round.refresh_from_db()
+        self.assertEqual(self.round.early_bird_user,self.user)
+
+    def test_snapshot_lone_wolf_and_david_use_persisted_counts(self):
+        match=Match.objects.create(round=self.round,league="L",home_team="A",away_team="B",kickoff=timezone.now()-timedelta(days=1),home_goals=1,away_goals=0)
+        Prediction.objects.create(user=self.user,match=match,predicted_result="1")
+        UserRoundScore.objects.create(user=self.user,round=self.round,typy_points=1,breakdown=[{"effective_match":match.id,"typy":1,"standard_prediction":["1"]}])
+        MatchKickoffSnapshot.objects.create(match=match,counts={"1":1,"X":100,"2":100})
+        evaluate_snapshot_achievements(self.user)
+        self.assertTrue(UserAchievement.objects.filter(user=self.user,achievement__code="LONE_WOLF").exists())
+        self.assertTrue(UserAchievement.objects.filter(user=self.user,achievement__code=f"DAVID_{match.id}").exists())
+
+    def test_photo_finish_unlocks_for_tied_leaders(self):
+        other=get_user_model().objects.create_user(username="tie",password="secret")
+        UserRoundScore.objects.create(user=self.user,round=self.round,typy_points=2)
+        UserRoundScore.objects.create(user=other,round=self.round,typy_points=2)
+        evaluate_trophies(self.round)
+        self.assertEqual(UserAchievement.objects.filter(achievement__code="PHOTO_FINISH").count(),2)
+
+    def test_profile_progress_uses_actual_typy_value_between_tiers(self):
+        UserRoundScore.objects.create(user=self.user, round=self.round, typy_points=18)
+        progress = profile_data(self.user)["paths"]["typy"]
+        self.assertEqual(progress["progress"], 18)
+        self.assertEqual(progress["next"], ("GOLD", 20))
+        self.assertEqual(progress["percent"], 90)
+
+    @patch("matches.services.profile.typy_streaks", return_value={"current_streak": 7, "max_streak": 7})
+    def test_profile_progress_uses_actual_streak_between_tiers(self, _streaks):
+        progress = profile_data(self.user)["paths"]["streak"]
+        self.assertEqual(progress["progress"], 7)
+        self.assertEqual(progress["next"], ("SILVER", 8))
+        self.assertEqual(progress["percent"], 88)
+
+    def test_profile_mastery_uses_actual_value_between_tiers_and_keeps_all_paths(self):
+        competition = Competition.objects.create(code="EPL", name="Premier League", country="England")
+        team = Team.objects.create(name="Arsenal")
+        season = CompetitionSeason.objects.create(competition=competition, season_label="2026/27", champion_team=team)
+        match = Match.objects.create(round=self.round, league="Premier League", home_team="Arsenal", away_team="Chelsea", kickoff=timezone.now()-timedelta(days=1), home_goals=1, away_goals=0, competition_season=season, home_team_entity=team)
+        UserRoundScore.objects.create(user=self.user, round=self.round, breakdown=[{"effective_match": match.id, "typy": 1}] * 18)
+        data = profile_data(self.user)
+        mastery = next(item["data"] for item in data["mastery"] if item["code"] == "EPL")
+        self.assertEqual((mastery["progress"], mastery["next"], mastery["percent"]), (18, ("SILVER", 25), 72))
+        self.assertEqual(len(data["mastery"]), 9)
+
+    def test_history_is_round_centric_and_keeps_unpredicted_slots_neutral(self):
+        matches = [
+            Match.objects.create(round=self.round, league="League", home_team=f"Home {number}", away_team=f"Away {number}", kickoff=timezone.now()-timedelta(days=2, minutes=number), home_goals=1, away_goals=0)
+            for number in range(30)
+        ]
+        for match in matches[:27]:
+            Prediction.objects.create(user=self.user, match=match, predicted_result="1")
+        UserRoundScore.objects.create(user=self.user, round=self.round, typy_points=27, breakdown=[{"match": match.id, "effective_match": match.id, "typy": 1, "standard_correct": True} for match in matches[:27]])
+        history, _ = public_history(self.user)
+        group = history.object_list[0]
+        self.assertEqual(len(group["slots"]), 30)
+        self.assertEqual(sum(not slot.saved_prediction for slot in group["slots"]), 3)
+        self.assertEqual(sum(slot.standard_score_state == "miss" for slot in group["slots"]), 0)
+        self.assertTrue(all(slot.effective_match.kickoff for slot in group["slots"]))
+        self.assertEqual(calculate_player_statistics(self.user).typy.submitted, 27)
+        response = self.client.get(reverse("player_profile", args=[self.user.username]))
+        self.assertContains(response, matches[0].kickoff.strftime("%d.%m.%Y"))
+
+    def test_history_competition_filter_shows_only_matching_matches(self):
+        epl = Competition.objects.create(code="EPL", name="Premier League", country="England")
+        laliga = Competition.objects.create(code="LALIGA", name="La Liga", country="Spain")
+        arsenal = Team.objects.create(name="Filter Arsenal")
+        barcelona = Team.objects.create(name="Filter Barcelona")
+        epl_season = CompetitionSeason.objects.create(competition=epl, season_label="2026/27", champion_team=arsenal)
+        laliga_season = CompetitionSeason.objects.create(competition=laliga, season_label="2026/27", champion_team=barcelona)
+        premier_match = Match.objects.create(round=self.round, league="Premier League", home_team="Filter Arsenal", away_team="Filter Chelsea", kickoff=timezone.now()-timedelta(days=2), home_goals=1, away_goals=0, competition_season=epl_season, home_team_entity=arsenal)
+        Match.objects.create(round=self.round, league="La Liga", home_team="Filter Barcelona", away_team="Filter Madrid", kickoff=timezone.now()-timedelta(days=2, minutes=1), home_goals=1, away_goals=0, competition_season=laliga_season, home_team_entity=barcelona)
+
+        history, _ = public_history(self.user, competition="EPL")
+
+        self.assertEqual(len(history.object_list), 1)
+        self.assertEqual([slot.effective_match.id for slot in history.object_list[0]["slots"]], [premier_match.id])
+
+    def test_history_round_filter_preserves_complete_selected_round(self):
+        first = Match.objects.create(round=self.round, league="League", home_team="A", away_team="B", kickoff=timezone.now()-timedelta(days=2), home_goals=1, away_goals=0)
+        Prediction.objects.create(user=self.user, match=first, predicted_result="1")
+        UserRoundScore.objects.create(user=self.user, round=self.round, breakdown=[{"match": first.id, "effective_match": first.id, "typy": 1, "standard_correct": True}])
+        other = Round.objects.create(name="Older completed round")
+        Match.objects.create(round=other, league="League", home_team="C", away_team="D", kickoff=timezone.now()-timedelta(days=3), home_goals=1, away_goals=0)
+        data = profile_data(self.user, round_id=self.round.id)
+        self.assertEqual(data["history"].paginator.count, 1)
+        self.assertEqual(data["history"].object_list[0]["round"], self.round)
+
+    def test_current_round_winner_resolves_its_origin_draft_loser(self):
+        winner = Match.objects.create(round=self.round, league="L", home_team="Winner", away_team="Home", kickoff=timezone.now()+timedelta(days=2))
+        loser = Match.objects.create(league="L", home_team="Loser", away_team="Away", kickoff=timezone.now()+timedelta(days=3))
+        Round.objects.filter(pk=self.round.pk).update(is_active=False)
+        origin = Draft.objects.create(name="Origin", starts_at=timezone.now()-timedelta(days=8), is_active=False)
+        pair = DraftPair.objects.create(draft=origin, day_number=1, match_a=winner, match_b=loser, winner=winner, resolution_method="VOTE", resolved_at=timezone.now())
+        Round.objects.filter(pk=self.round.pk).update(is_active=True)
+        self.assertEqual(draft_loser_for_winner(winner), loser)
+        self.assertEqual(pair.winner, winner)
+
+    def test_resolved_future_winner_is_editable_and_has_its_draft_loser(self):
+        candidate_a = Match.objects.create(league="L", home_team="Future A", away_team="Future B", kickoff=timezone.now()+timedelta(days=8))
+        candidate_b = Match.objects.create(league="L", home_team="Future C", away_team="Future D", kickoff=timezone.now()+timedelta(days=9))
+        draft = Draft.objects.create(name="Future", starts_at=timezone.now()-timedelta(days=2))
+        pair = DraftPair.objects.create(draft=draft, day_number=1, match_a=candidate_a, match_b=candidate_b)
+        pair.resolve()
+        draft.resolve_closed_pairs()
+        future = draft.next_round
+        winner = pair.winner
+        self.assertEqual(future.matches.count(), 1)
+        self.assertEqual(draft_loser_for_winner(winner), candidate_b if winner == candidate_a else candidate_a)
+
+    def test_new_result_goals_and_banker_save_together(self):
+        self.client.force_login(self.user)
+        match = Match.objects.create(round=self.round, league="L", home_team="A", away_team="B", kickoff=timezone.now()+timedelta(days=2))
+        response = self.client.post(reverse("typy"), {f"result_{match.id}": "1", f"goals_{match.id}": "3", f"chip_{match.id}": "BANKER", "confirm_less_than_ten": "1"})
+        self.assertRedirects(response, reverse("typy"))
+        self.assertEqual(Prediction.objects.get(user=self.user, match=match).total_goals, 3)
+        self.assertTrue(ChipAssignment.objects.filter(user=self.user, round=self.round, match=match, chip="BANKER").exists())
+
+    def test_goal_without_any_standard_prediction_returns_typy_and_saves_nothing(self):
+        self.client.force_login(self.user)
+        match = Match.objects.create(round=self.round, league="L", home_team="A", away_team="B", kickoff=timezone.now()+timedelta(days=2))
+        response = self.client.post(reverse("typy"), {f"goals_{match.id}": "3", "confirm_less_than_ten": "1"})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Wybierz typ 1/X/2")
+        self.assertFalse(Prediction.objects.filter(user=self.user, match=match).exists())
+
+    def test_ranking_username_links_to_the_shared_public_profile(self):
+        previous = Round.objects.create(name="Completed ranking", match_count=1)
+        Match.objects.create(round=previous, league="L", home_team="A", away_team="B", kickoff=timezone.now()-timedelta(days=1), home_goals=1, away_goals=0)
+        UserRoundScore.objects.create(user=self.user, round=previous, typy_points=3)
+        response = self.client.get(reverse("rankings"))
+        self.assertContains(response, reverse("player_profile", args=[self.user.username]))
+
+    def test_unfinished_round_score_cannot_contaminate_month_or_season_ranking(self):
+        Match50Season.objects.update(is_active=False)
+        season = Match50Season.objects.create(name="Ranking scope", starts_at=timezone.localdate()-timedelta(days=2), ends_at=timezone.localdate()+timedelta(days=2), is_active=True)
+        self.round.match50_season = season
+        self.round.save(update_fields=["match50_season"])
+        UserRoundScore.objects.create(user=self.user, round=self.round, typy_points=99, gole_points=99)
+        completed = Round.objects.create(name="Completed", ranking_date=timezone.localdate(), match50_season=season, match_count=1)
+        Match.objects.create(round=completed, league="L", home_team="A", away_team="B", kickoff=timezone.now()-timedelta(days=1), home_goals=1, away_goals=0)
+        UserRoundScore.objects.create(user=self.user, round=completed, typy_points=1, gole_points=1)
+        self.assertEqual(month_ranking(completed.ranking_date.year, completed.ranking_date.month)[0].total, 2)
+        self.assertEqual(season_ranking(season)[0].total, 2)
+
+
+class CanonicalHistorySeedCleanupTests(TestCase):
+    def test_cleanup_removes_a_development_owned_orphan_prediction_with_history(self):
+        user = get_user_model().objects.create_user(username="demo_rank_cleanup")
+        history = Round.objects.create(name="DEV PROFILE HISTORY CLEANUP", match_count=1)
+        winner = Match.objects.create(
+            round=history, league="Dev", home_team="Winner", away_team="Winner Away",
+            kickoff=timezone.now() - timedelta(days=2), home_goals=1, away_goals=0,
+        )
+        loser = Match.objects.create(
+            league="Dev", home_team="Loser", away_team="Loser Away",
+            kickoff=timezone.now() - timedelta(days=2), home_goals=0, away_goals=1,
+        )
+        origin = Draft.objects.create(
+            name="DEV HISTORY ORIGIN CLEANUP", starts_at=timezone.now() - timedelta(days=10),
+            is_active=False, next_round_name=history.name,
+        )
+        pair = DraftPair.objects.create(draft=origin, day_number=1, match_a=winner, match_b=loser)
+        pair.winner = winner
+        pair.resolution_method = DraftPair.Resolution.VOTE
+        pair.resolved_at = timezone.now()
+        pair.save(update_fields=["winner", "resolution_method", "resolved_at"])
+        Prediction.objects.create(user=user, match=winner, predicted_result="1")
+        # This extra prediction is deliberately outside the Round, but its
+        # paired loser makes it unambiguously owned by canonical history.
+        Prediction.objects.create(user=user, match=loser, predicted_result="2", total_goals=4)
+
+        SeedDevDataCommand()._clear_canonical_history()
+
+        self.assertFalse(Round.objects.filter(pk=history.pk).exists())
+        self.assertFalse(Draft.objects.filter(pk=origin.pk).exists())
+        self.assertFalse(Match.objects.filter(pk=loser.pk).exists())
+        self.assertFalse(Prediction.objects.filter(user=user).exists())

@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from django.db.models import QuerySet
 
-from matches.models import UserRoundScore
+from matches.models import Match, Round, UserRoundScore
 
 
 @dataclass(frozen=True)
@@ -38,16 +38,28 @@ def _rank(scores: QuerySet):
     return entries
 
 
+def _completed_round_ids(rounds):
+    """Round state, rather than score-row existence, defines eligibility."""
+    return [
+        round_.id for round_ in rounds.prefetch_related("matches")
+        if (not round_.is_active and not round_.matches.exists())
+        or (round_.matches.count() == round_.match_count
+            and not round_.matches.exclude(status__in=[Match.Status.FINISHED, Match.Status.CANCELLED]).exists())
+    ]
+
+
 def round_ranking(round_):
     return _rank(UserRoundScore.objects.filter(round=round_)) if round_ else []
 
 
 def month_ranking(year, month):
-    return _rank(UserRoundScore.objects.filter(round__ranking_date__year=year, round__ranking_date__month=month))
+    ids = _completed_round_ids(Round.objects.filter(ranking_date__year=year, ranking_date__month=month))
+    return _rank(UserRoundScore.objects.filter(round_id__in=ids))
 
 
 def season_ranking(season):
-    return _rank(UserRoundScore.objects.filter(round__match50_season=season)) if season else []
+    ids = _completed_round_ids(Round.objects.filter(match50_season=season)) if season else []
+    return _rank(UserRoundScore.objects.filter(round_id__in=ids))
 
 
 def top_with_current(entries, user=None, limit=100):

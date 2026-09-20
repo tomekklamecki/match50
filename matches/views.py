@@ -3,23 +3,28 @@ from datetime import timedelta
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.http import HttpResponseBadRequest, HttpResponseForbidden
+from django.http import HttpResponseBadRequest, HttpResponseForbidden, JsonResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .models import ChipAssignment, Draft, DraftModifierVote, DraftPair, DraftVote, GlobalModifier, Match50Season, Prediction, Round, UserRoundScore
 from .services.effective_match import draft_loser_for_winner, prediction_match_ids_for_round, resolve_effective_match
+from .services.match_cards import prepare_settled_match
+from .services.lifecycle import get_current_round, get_previous_completed_round, get_future_round_for_current_draft
 from .services.rankings import month_ranking, round_ranking, season_ranking, top_with_current
+from .services.profile import profile_data, public_history
+from django.contrib.auth import get_user_model
 
 
 def home(request):
     active_round = Round.objects.filter(is_active=True).order_by("id").first()
-    reference_date = active_round.ranking_date if active_round else timezone.localdate()
-    season = active_round.match50_season if active_round else Match50Season.objects.filter(is_active=True).first()
+    completed_round = get_previous_completed_round()
+    reference_date = completed_round.ranking_date if completed_round else timezone.localdate()
+    season = completed_round.match50_season if completed_round else Match50Season.objects.filter(is_active=True).first()
     return render(request, "matches/home.html", {
         "active_round": active_round,
-        "round_top": round_ranking(active_round)[:5],
+        "round_top": round_ranking(completed_round)[:5],
         "month_top": month_ranking(reference_date.year, reference_date.month)[:5],
         "season_top": season_ranking(season)[:5],
     })
@@ -28,7 +33,7 @@ def home(request):
 def rankings(request):
     ranking_type = request.GET.get("type", "round")
     active_round = Round.objects.filter(is_active=True).first()
-    selected_round = active_round
+    selected_round = get_previous_completed_round()
     if request.GET.get("round"):
         selected_round = Round.objects.filter(pk=request.GET["round"]).first()
     if ranking_type == "month":
@@ -45,6 +50,11 @@ def rankings(request):
         title = selected_round.name if selected_round else "Brak aktywnej rundy"
     top, current_entry = top_with_current(entries, request.user if request.user.is_authenticated else None)
     return render(request, "matches/rankings.html", {"ranking_type": ranking_type, "title": title, "entries": top, "current_entry": current_entry, "rounds": Round.objects.order_by("-ranking_date", "-id")})
+
+
+def player_profile(request, username):
+    player = get_object_or_404(get_user_model(), username=username)
+    return render(request, "matches/profile.html", {"player": player, **profile_data(player, request.GET.get("page", 1), request.GET.get("competition"), request.GET.get("result"), request.GET.get("round"))})
 
 
 def placeholder(request, section):
@@ -128,8 +138,32 @@ def draft_modifier_vote(request, modifier_id):
     return redirect("draft")
 
 
+@transaction.atomic
 def typy(request):
-    active_round = get_object_or_404(Round, is_active=True)
+    tab = request.GET.get("tab", "current")
+    if tab == "previous":
+        round_ = get_previous_completed_round()
+        return render_round_readonly(request, round_, "POPRZEDNIA KOLEJKA", tab)
+    if tab == "future":
+        active_round = get_future_round_for_current_draft()
+        if active_round is None:
+            return render_round_readonly(request, None, "PRZYSZŁA KOLEJKA", tab)
+    else:
+        active_round = get_current_round()
+    if active_round is None:
+        # Between rounds Typy remains a read-only recap of the most recently
+        # settled Round, rather than returning an empty/404 page.
+        active_round = get_previous_completed_round()
+    if active_round is None:
+        return render(request, "matches/obstaw.html", {"matches": [], "active_round": None, "round_is_closed": True})
+    active_round.is_future_preview = tab == "future"
+    card_id = request.POST.get("card_match") if request.method == "POST" else None
+    ui_save = request.method == "POST" and request.POST.get("ui_save") == "1"
+    request.prediction_card = ui_save or card_id is not None
+    if request.method == "POST":
+        Round.objects.select_for_update().get(pk=active_round.pk)
+        if request.prediction_card and request.POST.get("round_id") != str(active_round.pk):
+            return HttpResponseBadRequest("Kolejka zmieniła się. Odśwież stronę przed zapisem.")
     matches = list(active_round.matches.order_by("kickoff", "id"))
     assignments = []
     if request.user.is_authenticated:
@@ -149,11 +183,36 @@ def typy(request):
         match.chip_prediction_editable = match.predictions_editable or (assignment and assignment.chip == ChipAssignment.Chip.CHANGE_MIND and assignment.prediction_editable)
     if request.method == "POST":
         if not request.user.is_authenticated:
+            if request.prediction_card:
+                return JsonResponse({"error": "Sesja wygasła. Zaloguj się ponownie."}, status=403)
             return redirect("login")
+        if card_id is not None:
+            if card_id not in {str(match.id) for match in matches}:
+                return HttpResponseBadRequest("Ten mecz nie należy do dostępnych meczów kolejki.")
+            # A card is a patch to persisted round state, never a sparse whole-form save.
+            # Ignore fields for other slots supplied by the client.
+            merged = QueryDict(mutable=True)
+            merged["confirm_less_than_ten"] = request.POST.get("confirm_less_than_ten", "")
+            for match in matches:
+                if str(match.id) == card_id:
+                    for prefix in ("result", "goals", "chip"):
+                        key = f"{prefix}_{match.id}"
+                        merged.setlist(key, request.POST.getlist(key))
+                    continue
+                prediction = existing.get(match.effective_match.id)
+                if prediction and match.chip_prediction_editable:
+                    merged.setlist(f"result_{match.id}", match.saved_outcomes or [prediction.predicted_result])
+                    if match.predictions_editable and prediction.total_goals is not None:
+                        merged[f"goals_{match.id}"] = str(prediction.total_goals)
+                merged[f"chip_{match.id}"] = match.saved_chip
+            request.POST = merged
+            request.prediction_card = True
         goal_match_ids = {item.match_id for item in existing.values() if item.total_goals is not None}
         changes = []
         deletions = []
         for match in matches:
+            if card_id is not None and str(match.id) != card_id:
+                continue
             results = request.POST.getlist(f"result_{match.id}")
             result = results[0] if results else ""
             total_goals = request.POST.get(f"goals_{match.id}", "")
@@ -176,6 +235,11 @@ def typy(request):
                 total_goals = None
             if not match.predictions_editable and total_goals is not None:
                 return HttpResponseBadRequest("Goal predictions lock at kickoff.")
+            if request.prediction_card and not match.predictions_editable:
+                # CHANGE_MIND edits only the outcome; an omitted, locked GOLE
+                # field must not clear an already persisted goal prediction.
+                persisted = existing.get(match.effective_match.id)
+                total_goals = persisted.total_goals if persisted else None
             # Resolve the submitted SWAP now, not only after ChipAssignment is
             # saved.  This makes the replacement the prediction target in the
             # same explicit-save request that activates SWAP.
@@ -190,7 +254,18 @@ def typy(request):
                 else:
                     goal_match_ids.add(target_match.id)
             elif total_goals is not None:
-                return HttpResponseBadRequest("Select a standard prediction before adding a goal prediction.")
+                # A goal prediction is valid when the final state has a
+                # standard prediction: either submitted above or already
+                # persisted for this effective slot.  Do not require two
+                # separate Save requests.
+                persisted = existing.get(target_match.id)
+                if not persisted:
+                    return render_typy(
+                        request, active_round, matches, existing, request.POST,
+                        chip_error="Wybierz typ 1/X/2 przed zapisaniem liczby goli.",
+                    )
+                changes.append((target_match, persisted.predicted_result, total_goals))
+                goal_match_ids.add(target_match.id)
             elif target_match.id in existing:
                 deletions.append(target_match.id)
                 goal_match_ids.discard(target_match.id)
@@ -198,7 +273,8 @@ def typy(request):
         if goal_count > 10:
             return HttpResponseBadRequest("A maximum of 10 goal predictions is allowed per round.")
         if goal_count < 10 and request.POST.get("confirm_less_than_ten") != "1":
-            messages.warning(request, f"Nie wybrałeś 10 meczów do określenia liczby goli. Obecnie masz {goal_count}/10. Jeśli zapiszesz teraz, nie zdobędziesz punktów za pozostałe predykcje.")
+            if not request.prediction_card:
+                messages.warning(request, f"Nie wybrałeś 10 meczów do określenia liczby goli. Obecnie masz {goal_count}/10. Jeśli zapiszesz teraz, nie zdobędziesz punktów za pozostałe predykcje.")
             return render_typy(request, active_round, matches, existing, request.POST, True)
         desired_chips = []
         for match in matches:
@@ -234,8 +310,8 @@ def typy(request):
         if len(desired_chips) != len({match.id for match, *_ in desired_chips}):
             return HttpResponseBadRequest("Only one chip can be assigned to a match.")
         for match, chip, outcomes, _, _ in desired_chips:
-            if chip == ChipAssignment.Chip.BANKER and not request.POST.getlist(f"result_{match.id}"):
-                return HttpResponseBadRequest("BANKER wymaga typu 1/X/2.")
+            if chip == ChipAssignment.Chip.BANKER and not request.POST.getlist(f"result_{match.id}") and not existing.get(match.effective_match.id):
+                return render_typy(request, active_round, matches, existing, request.POST, chip_error="BANKER wymaga typu 1/X/2.")
             if chip == ChipAssignment.Chip.DOUBLE_PICK and set(outcomes) not in ({"1", "X"}, {"1", "2"}, {"X", "2"}):
                 return render_typy(request, active_round, matches, existing, request.POST, chip_error="DOUBLE PICK wymaga dokładnie dwóch różnych wyników.")
         try:
@@ -254,6 +330,8 @@ def typy(request):
                     if desired is None:
                         assignment.delete()
                 for match, chip, outcomes, goal_team, replacement in desired_chips:
+                    if card_id is not None and str(match.id) != card_id:
+                        continue
                     current = assignment_by_match.get(match.id)
                     if current and not current.assignment_editable:
                         continue
@@ -265,18 +343,47 @@ def typy(request):
                 Prediction.objects.filter(user=request.user, match_id__in=set(deletions) | (previous_swap_ids - new_swap_ids)).delete()
                 for match, result, total_goals in changes:
                     Prediction.objects.update_or_create(user=request.user, match=match, defaults={"predicted_result": result, "total_goals": total_goals})
+                if changes:
+                    locked_round = Round.objects.select_for_update().get(pk=active_round.pk)
+                    if locked_round.early_bird_user_id is None:
+                        locked_round.early_bird_user = request.user
+                        locked_round.early_bird_at = timezone.now()
+                        locked_round.save(update_fields=["early_bird_user", "early_bird_at"])
+                        from matches.services.achievements import _unlock
+                        _unlock(request.user, f"EARLY_BIRD_{active_round.id}", "Early Bird", "HIDDEN", context={"round":active_round.id}, hidden=True)
         except ValidationError as error:
             return render_typy(request, active_round, matches, existing, request.POST, chip_error=error.messages[0])
+        if request.prediction_card:
+            from .services.prediction_ui import persisted_state
+            return JsonResponse({"saved": True, "slots": persisted_state(request.user, active_round, matches)})
         messages.success(request, "Typy zostały zapisane.")
-        return redirect("typy")
+        return redirect(request.path + ("?tab=future" if tab == "future" else ""))
     return render_typy(request, active_round, matches, existing)
 
 
+def render_round_readonly(request, round_, title, tab):
+    history_group = None
+    if round_ and title == "POPRZEDNIA KOLEJKA" and request.user.is_authenticated:
+        page, _ = public_history(request.user, round_id=round_.id)
+        history_group = page.object_list[0] if page.object_list else None
+    matches = history_group["slots"] if history_group else list(round_.matches.order_by("kickoff", "id")) if round_ else []
+    score = UserRoundScore.objects.filter(user=request.user, round=round_).first() if request.user.is_authenticated and round_ else None
+    rank = next((entry.rank for entry in round_ranking(round_) if request.user.is_authenticated and entry.user_id == request.user.id), None) if round_ else None
+    return render(request, "matches/round_readonly.html", {"round": round_, "matches": matches, "title": title, "selected_tab": tab, "score": score, "rank": rank, "active_modifier": round_.active_global_modifier if round_ else None, "settled": bool(history_group)})
+
+
 def render_typy(request, active_round, matches, existing, form_data=None, needs_confirmation=False, chip_error=None):
+    if getattr(request, "prediction_card", False):
+        return JsonResponse({"error": chip_error or "Nie wybrano 10 typów GOLE. Potwierdź zapis częściowej kolejki.", "needs_confirmation": needs_confirmation}, status=400)
+    assignment_by_match = {
+        assignment.match_id: assignment
+        for assignment in ChipAssignment.objects.filter(user=request.user, round=active_round)
+    } if request.user.is_authenticated else {}
     for match in matches:
         prediction = existing.get(match.effective_match.id)
         match.saved_prediction = prediction.predicted_result if prediction else ""
         match.saved_goals = "" if not prediction or prediction.total_goals is None else prediction.total_goals
+        match.prediction_ui = bool(request.user.is_authenticated and match.chip_prediction_editable and match.effective_match.status not in {"FINISHED", "CANCELLED"})
         if form_data is not None:
             match.saved_prediction = form_data.get(f"result_{match.id}", match.saved_prediction)
             match.saved_goals = form_data.get(f"goals_{match.id}", match.saved_goals)
@@ -296,19 +403,19 @@ def render_typy(request, active_round, matches, existing, form_data=None, needs_
         # The breakdown is keyed by the effective (possibly swapped) match.
         # Keep original_match only for the explanatory SWAP label in the UI.
         info = score_by_match.get(match.effective_match.id, {})
-        match.match_points = info.get("typy", 0) + info.get("gole", 0) + info.get("bonus", 0)
-        match.score_breakdown = info
-        if match.effective_match.status == "CANCELLED":
-            match.standard_score_state = match.goal_score_state = "neutral"
-            match.score_state = "cancelled"
-        elif match.effective_match.status == "FINISHED":
-            match.standard_score_state = "hit" if info.get("standard_correct") is True else "miss" if info.get("standard_correct") is False else "neutral"
-            match.goal_score_state = "hit" if info.get("goal_correct") is True else "miss" if info.get("goal_correct") is False else "neutral"
-            match.score_state = match.standard_score_state
+        if match.effective_match.status in {"FINISHED", "CANCELLED"}:
+            prepare_settled_match(match, assignment_by_match.get(match.id), existing.get(match.effective_match.id), info)
         else:
+            match.match_points = info.get("typy", 0) + info.get("gole", 0) + info.get("bonus", 0)
+            match.score_breakdown = info
             match.standard_score_state = match.goal_score_state = match.score_state = "neutral"
     final_statuses = {"FINISHED", "CANCELLED"}
     # A user's SWAP replacement is part of that user's effective round too.
     # Do not offer an editing action after every effective match is settled.
     round_is_closed = bool(matches) and all(match.effective_match.status in final_statuses for match in matches)
-    return render(request, "matches/obstaw.html", {"matches": matches, "active_round": active_round, "needs_confirmation": needs_confirmation, "chip_options": chip_options, "chip_error": chip_error, "active_modifier": active_round.active_global_modifier, "round_score": score, "chip_count": sum(bool(match.saved_chip) for match in matches), "round_is_closed": round_is_closed})
+    # Reuse the match-row editability decision, including CHANGE_MIND's
+    # existing post-kickoff window, for the toolbar and Card View entry point.
+    has_editable_matches = any(match.prediction_ui for match in matches)
+    from .services.prediction_ui import presentation_state
+    ui = presentation_state(request.user, active_round, matches)
+    return render(request, "matches/obstaw.html", {"matches": matches, "active_round": active_round, "needs_confirmation": needs_confirmation, "chip_options": chip_options, "chip_error": chip_error, "active_modifier": active_round.active_global_modifier, "round_score": score, "chip_count": sum(bool(match.saved_chip) for match in matches), "round_is_closed": round_is_closed, "has_editable_matches": has_editable_matches, "prediction_ui": ui})
