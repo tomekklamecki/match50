@@ -7,10 +7,27 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from .models import ChipAssignment, Draft, DraftPair, Match, Prediction, Round
+from .models import ChipAssignment, Draft, DraftPair, Match, Prediction, Round, Team
 
 
 class PredictionCardTests(TestCase):
+    def test_team_shirts_use_canonical_team_configuration_and_neutral_fallback(self):
+        configured = Team.objects.create(
+            name="Striped FC", shirt_primary="#112233", shirt_secondary="#ddeeff",
+            shirt_pattern=Team.ShirtPattern.VERTICAL_STRIPES,
+        )
+        self.a.home_team_entity = configured
+        self.a.save(update_fields=["home_team_entity"])
+
+        response = self.client.get(reverse("typy"))
+        slot = response.context["prediction_ui"]["slots"][str(self.a.id)]["original"]
+        self.assertEqual(slot["homeShirt"], {
+            "primary": "#112233", "secondary": "#ddeeff", "pattern": "VERTICAL_STRIPES",
+        })
+        self.assertEqual(slot["awayShirt"]["pattern"], "SOLID")
+        self.assertContains(response, 'data-shirt-pattern="VERTICAL_STRIPES"')
+        self.assertContains(response, 'aria-label="Koszulka: Away"')
+
     def test_centralized_flags_use_football_countries_and_escape_unknown_names(self):
         from .services.league_flags import league_label
         for league, country in [('Premier League', 'England'), ('La Liga', 'Spain'), ('Serie A', 'Italy'),

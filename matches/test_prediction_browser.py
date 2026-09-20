@@ -77,6 +77,22 @@ class PredictionBrowserTests(StaticLiveServerTestCase):
         expect(page.locator('#partial-dialog')).not_to_be_visible()
         self.assertIn('tab=future', page.url)
 
+    def test_current_and_future_tabs_always_open_in_list_view(self):
+        from playwright.sync_api import expect
+
+        page = self.page
+        page.goto(self.live_server_url + '/typy/')
+        page.locator('[data-view=card]').click()
+        expect(page.locator('[data-view=card]')).to_have_attribute('aria-pressed', 'true')
+        page.locator('a[href="/typy/?tab=future"]').click()
+        page.wait_for_url('**/typy/?tab=future')
+        expect(page.locator('[data-view=list]')).to_have_attribute('aria-pressed', 'true')
+        page.locator('[data-view=card]').click()
+        expect(page.locator('[data-view=card]')).to_have_attribute('aria-pressed', 'true')
+        page.get_by_role('link', name='AKTUALNA KOLEJKA').click()
+        page.wait_for_url('**/typy/')
+        expect(page.locator('[data-view=list]')).to_have_attribute('aria-pressed', 'true')
+
     def test_flags_and_kickoffs_are_consistent_across_views_and_summary(self):
         from playwright.sync_api import expect
         identities = [('Premier League', 'England'), ('La Liga', 'Spain'), ('Serie A', 'Italy'),
@@ -93,7 +109,7 @@ class PredictionBrowserTests(StaticLiveServerTestCase):
             expected = row.evaluate('(row)=>JSON.parse(document.getElementById("prediction-state").textContent).slots[row.dataset.matchId].original.kickoff')
             expect(row.locator('.league-kickoff')).to_have_text(expected)
             self.assertGreater(row.locator('.league-kickoff').bounding_box()['y'], row.locator('.match-league').bounding_box()['y'])
-            badge = page.locator('#league-progress > span').filter(has_text=league)
+            badge = page.locator('#league-progress > .league-filter').filter(has_text=league)
             if country:
                 expect(row.locator(f'.league-flag[aria-label="{country}"]')).to_have_count(1)
                 expect(badge.locator(f'.league-flag[aria-label="{country}"]')).to_have_count(1)
@@ -106,6 +122,78 @@ class PredictionBrowserTests(StaticLiveServerTestCase):
             if country: expect(row.locator(f'.league-flag[aria-label="{country}"]')).to_have_count(1)
             page.locator('[data-view=list]').click()
         expect(page.locator('[aria-label="United Kingdom"]')).to_have_count(0)
+
+    def test_card_chip_states_distinguish_current_match_other_match_and_unused(self):
+        from playwright.sync_api import expect
+
+        def seed():
+            for match in self.matches[:2]:
+                Prediction.objects.create(user=self.user, match=match, predicted_result='1')
+            ChipAssignment.objects.create(user=self.user, round=self.round, match=self.matches[0], chip='BANKER')
+            ChipAssignment.objects.create(
+                user=self.user, round=self.round, match=self.matches[1], chip='DOUBLE_PICK', outcomes=['1', 'X'],
+            )
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            executor.submit(seed).result()
+
+        page = self.page
+        page.goto(self.live_server_url + '/typy/')
+        page.locator('[data-view=card]').click()
+        first = page.locator('[data-prediction-card]').nth(0)
+        banker = first.locator('[data-chip=BANKER]')
+        double_pick = first.locator('[data-chip=DOUBLE_PICK]')
+        expect(banker).to_have_class('chip active')
+        expect(double_pick).to_have_class('chip used-elsewhere')
+        expect(double_pick).to_be_disabled()
+
+        page.locator('#card-next').click()
+        second = page.locator('[data-prediction-card]').nth(1)
+        expect(second.locator('[data-chip=BANKER]')).to_have_class('chip used-elsewhere')
+        expect(second.locator('[data-chip=DOUBLE_PICK]')).to_have_class('chip active')
+        page.locator('#card-next').click()
+        third = page.locator('[data-prediction-card]').nth(2).locator('[data-chip=CHANGE_MIND]')
+        expect(third).not_to_have_class('active')
+        expect(third).not_to_have_class('used-elsewhere')
+        expect(third).to_be_enabled()
+
+    def test_league_badges_filter_only_list_and_card_navigation_keeps_all_matches(self):
+        from playwright.sync_api import expect
+
+        def seed():
+            for i in range(2):
+                Match.objects.create(
+                    round=self.round, league='La Liga', home_team=f'Spanish home {i}',
+                    away_team=f'Spanish away {i}', kickoff=timezone.now()+timedelta(days=2),
+                )
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            executor.submit(seed).result()
+
+        page = self.page
+        page.goto(self.live_server_url + '/typy/')
+        rows = page.locator('[data-prediction-card]')
+        visible_rows = page.locator('#prediction-form > [data-match-id]:visible')
+        premier = page.locator('.league-filter[data-league="Premier League"]')
+        la_liga = page.locator('.league-filter[data-league="La Liga"]')
+
+        expect(rows).to_have_count(5)
+        premier.click()
+        expect(visible_rows).to_have_count(3)
+        la_liga.click()
+        expect(visible_rows).to_have_count(5)
+        premier.click()
+        expect(visible_rows).to_have_count(2)
+        la_liga.click()
+        expect(visible_rows).to_have_count(5)
+
+        la_liga.click()
+        expect(visible_rows).to_have_count(2)
+        rows.nth(3).locator('.open-card').click()
+        expect(page.locator('#card-position')).to_have_text('4 / 5')
+        page.locator('#card-previous').click()
+        expect(page.locator('#card-position')).to_have_text('3 / 5')
+        expect(rows.nth(2)).to_be_visible()
 
     def test_double_pick_is_prepared_only_in_main_row_then_uses_existing_save(self):
         from playwright.sync_api import expect
@@ -138,13 +226,13 @@ class PredictionBrowserTests(StaticLiveServerTestCase):
         page.locator('[data-view=list]').click()
         row.locator('.chip-picker').click()
         page.locator('#chip-dialog [data-chip=DOUBLE_PICK]').click()
-        expect(row.locator('.chip-picker')).to_have_text('◇ CHIP')
+        expect(row.locator('.chip-picker')).to_have_text('CHIP')
         row.locator('.chip-picker').click()
         page.locator('#chip-dialog [data-chip=DOUBLE_PICK]').click()
         page.route('**/typy/', lambda route: route.fulfill(status=400, content_type='application/json', body='{"error":"Rejected"}') if route.request.method == 'POST' else route.continue_())
         row.locator('label[for$="-X"]').click()
         expect(page.locator('#prediction-feedback')).to_have_text('Rejected')
-        expect(row.locator('.chip-picker')).to_have_text('◇ CHIP')
+        expect(row.locator('.chip-picker')).to_have_text('CHIP')
         expect(row.locator('input[value=X]')).not_to_be_checked()
         expect(row.locator('input[value="1"]')).to_be_checked()
         expect(page.locator('#chip-progress [data-chip=DOUBLE_PICK]')).not_to_have_class('used')
@@ -166,7 +254,7 @@ class PredictionBrowserTests(StaticLiveServerTestCase):
         first.locator('.chip-picker').click()
         page.locator('#chip-dialog [data-chip=BANKER]').click()
         expect(summary).not_to_have_class('used')
-        expect(first.locator('.chip-picker')).to_have_text('◇ CHIP')
+        expect(first.locator('.chip-picker')).to_have_text('CHIP')
         self.assertEqual(len(posts), 1)
         second.locator('.chip-picker').click()
         expect(page.locator('#chip-dialog [data-chip=BANKER]')).to_be_enabled()
@@ -205,7 +293,7 @@ class PredictionBrowserTests(StaticLiveServerTestCase):
         first.locator('.chip-picker').click()
         page.locator('#chip-dialog [data-chip=BANKER]').click()
         expect(page.locator('#prediction-feedback')).to_have_text('Add failed')
-        expect(first.locator('.chip-picker')).to_have_text('◇ CHIP')
+        expect(first.locator('.chip-picker')).to_have_text('CHIP')
         expect(summary).not_to_have_class('used')
         second.locator('.chip-picker').click()
         expect(page.locator('#chip-dialog [data-chip=BANKER]')).to_be_enabled()
@@ -257,7 +345,7 @@ class PredictionBrowserTests(StaticLiveServerTestCase):
                 first.locator('.chip-picker').click()
                 page.locator(f'#chip-dialog [data-chip={chip}]').click()
                 expect(summary).not_to_have_class('used')
-                expect(first.locator('.chip-picker')).to_have_text('◇ CHIP')
+                expect(first.locator('.chip-picker')).to_have_text('CHIP')
                 second.locator('.chip-picker').click()
                 expect(page.locator(f'#chip-dialog [data-chip={chip}]')).to_be_enabled()
                 page.locator('#chip-dialog .button').click()
@@ -383,7 +471,7 @@ class PredictionBrowserTests(StaticLiveServerTestCase):
         page.locator('[data-goals="15"]').click()
         second.locator('.chip-picker').click()
         expect(page.locator('#chip-dialog [data-chip=DOUBLE_PICK]')).to_be_disabled()
-        expect(page.locator('#chip-dialog [data-chip=DOUBLE_PICK] .chip-state')).to_contain_text('Użyty:')
+        expect(page.locator('#chip-dialog [data-chip=DOUBLE_PICK] .chip-state')).to_have_count(0)
         page.locator('#chip-dialog .button').click()
         second.locator('label[for$="-X"]').click()
         second.locator('.chip-picker').click()
@@ -443,17 +531,20 @@ class PredictionBrowserTests(StaticLiveServerTestCase):
         expect(result.locator('.current-points')).to_be_visible()
         expect(result.locator('.history-row')).to_have_count(0)
         rows = page.locator('[data-prediction-card]')
-        expect(rows.nth(2).locator('.teams')).to_have_text('Replacement home – Replacement away')
+        expect(rows.nth(2).locator('[data-team-home]')).to_have_text('Replacement home')
+        expect(rows.nth(2).locator('[data-team-away]')).to_have_text('Replacement away')
         swap_summary = page.locator('#chip-progress [data-chip=SWAP]')
         expect(page.locator('#chip-progress .used')).to_have_count(5)
         rows.nth(2).locator('.chip-picker').click()
         page.locator('#chip-dialog [data-chip=SWAP]').click()
-        expect(rows.nth(2).locator('.teams')).to_have_text('Home 2 – Away 2')
+        expect(rows.nth(2).locator('[data-team-home]')).to_have_text('Home 2')
+        expect(rows.nth(2).locator('[data-team-away]')).to_have_text('Away 2')
         expect(swap_summary).not_to_have_class('used')
         expect(page.locator('#chip-progress .used')).to_have_count(4)
         rows.nth(2).locator('.chip-picker').click()
         page.locator('#chip-dialog [data-chip=SWAP]').click()
-        expect(rows.nth(2).locator('.teams')).to_have_text('Replacement home – Replacement away')
+        expect(rows.nth(2).locator('[data-team-home]')).to_have_text('Replacement home')
+        expect(rows.nth(2).locator('[data-team-away]')).to_have_text('Replacement away')
         expect(swap_summary).to_have_class('used')
         expect(page.locator('#chip-progress .used')).to_have_count(5)
         rows.nth(6).locator('.goal-picker').click()
@@ -529,7 +620,7 @@ class PredictionBrowserTests(StaticLiveServerTestCase):
         with ThreadPoolExecutor(max_workers=1) as executor:
             self.assertEqual(executor.submit(lambda: Prediction.objects.get(user=self.user, match=self.matches[1]).predicted_result).result(), '1')
         page.reload()
-        expect(page.locator('[data-view=card]')).to_have_attribute('aria-pressed', 'true')
+        expect(page.locator('[data-view=list]')).to_have_attribute('aria-pressed', 'true')
         page.screenshot(path=os.path.join(tempfile.gettempdir(), 'match50-prediction-desktop.png'), full_page=True)
 
     def test_mobile_future_last_card_and_failed_tab_navigation(self):
@@ -537,6 +628,8 @@ class PredictionBrowserTests(StaticLiveServerTestCase):
         page = self.page
         page.set_viewport_size({"width": 375, "height": 812})
         page.goto(self.live_server_url + '/typy/?tab=future')
+        expect(page.locator('[data-view=list]')).to_have_attribute('aria-pressed', 'true')
+        page.locator('[data-view=card]').click()
         expect(page.locator('[data-view=card]')).to_have_attribute('aria-pressed', 'true')
         expect(page.locator('#card-position')).to_have_text('1 / 1 dostępnych')
         expect(page.locator('#prediction-progress')).to_contain_text('Dostępne: 1/30')

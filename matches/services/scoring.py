@@ -74,13 +74,12 @@ def recalculate_user_round_score(user, round_):
         breakdown.append(item)
     with transaction.atomic():
         score,_=UserRoundScore.objects.update_or_create(user=user,round=round_,defaults={"typy_points":typy,"gole_points":gole,"bonus_points":bonus,"total_points":typy+gole+bonus,"breakdown":breakdown})
-    from matches.services.achievements import evaluate_user, evaluate_trophies
-    evaluate_user(user)
-    if not round_.matches.exclude(status__in=[Match.Status.FINISHED, Match.Status.CANCELLED]).exists():
-        evaluate_trophies(round_)
+    from matches.services.achievements import evaluate_score
+    evaluate_score(score)
     return score
 
 
+@transaction.atomic
 def recalculate_round_scores(round_):
     # A SWAP prediction belongs to the persisted replacement match, which is
     # deliberately outside the global Round.  Include chip owners as well so a
@@ -88,4 +87,8 @@ def recalculate_round_scores(round_):
     user_ids = set(Prediction.objects.filter(match__round=round_).values_list("user_id", flat=True))
     user_ids.update(ChipAssignment.objects.filter(round=round_).values_list("user_id", flat=True))
     users = get_user_model().objects.filter(pk__in=user_ids)
-    return [recalculate_user_round_score(user,round_) for user in users]
+    scores = [recalculate_user_round_score(user,round_) for user in users]
+    from matches.services.achievements import evaluate_trophies
+    if all(len(score.breakdown) == round_.match_count for score in scores):
+        evaluate_trophies(round_)
+    return scores

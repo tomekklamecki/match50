@@ -3,7 +3,6 @@ from matches.models import ChipAssignment, Competition, Match, Match50Season, Pr
 from matches.services.match_cards import prepare_settled_match
 from matches.services.player_statistics import calculate_player_statistics
 from matches.services.rankings import month_ranking, round_ranking, season_ranking
-from matches.services.streaks import typy_streaks
 
 
 def _is_completed_round(round_):
@@ -15,10 +14,14 @@ def public_history(user, page=1, competition=None, result=None, round_id=None):
     """Build history in complete Round-sized groups, never Prediction rows."""
     assignments = {
         (item.round_id, item.match_id): item
-        for item in ChipAssignment.objects.filter(user=user).select_related("replacement_match")
+        for item in ChipAssignment.objects.filter(user=user).select_related(
+            "replacement_match__home_team_entity", "replacement_match__away_team_entity"
+        )
     }
     all_candidates = list(
-        Round.objects.prefetch_related("matches__competition_season__competition")
+        Round.objects.prefetch_related(
+            "matches__competition_season__competition", "matches__home_team_entity", "matches__away_team_entity"
+        )
         .order_by("-ranking_date", "-id")
     )
     all_candidates = [round_ for round_ in all_candidates if _is_completed_round(round_)]
@@ -104,24 +107,19 @@ def profile_data(user, page=1, competition=None, result=None, round_id=None):
     trophy_rows=[]; trophies=TrophyFinish.objects.filter(user=user)
     for scope,label in (("ROUND","KOLEJKI"),("MONTH","MIESIĄCE"),("SEASON","SEZONY")):
         trophy_rows.append({"label":label,"gold":trophies.filter(scope=scope,rank=1).count(),"silver":trophies.filter(scope=scope,rank=2).count(),"bronze":trophies.filter(scope=scope,rank=3).count()})
-    scores=list(UserRoundScore.objects.filter(user=user).select_related("round"))
-    completed_scores = [
-        score for score in scores
-        if not score.round.matches.exclude(status__in=[Match.Status.FINISHED, Match.Status.CANCELLED]).exists()
-    ]
-    gole_tiers=[("BRONZE",2),("SILVER",4),("GOLD",6),("PLATINUM",8),("DIAMOND",10)]
-    repeat_tiers=[("BRONZE",2),("SILVER",4),("GOLD",10),("PLATINUM",20),("DIAMOND",50)]
-    streak_tiers=[("BRONZE",3),("SILVER",8),("GOLD",15),("PLATINUM",22),("DIAMOND",30)]
-    paths={
-        "typy": _progress(max([score.typy_points for score in completed_scores] or [0]), tiers),
-        "gole": _progress(max([score.gole_points for score in completed_scores] or [0]), gole_tiers),
-        "typy_again": _progress(sum(score.typy_points >= 20 for score in completed_scores), repeat_tiers),
-        "gole_again": _progress(sum(score.gole_points >= 6 for score in completed_scores), repeat_tiers),
-        "streak": _progress(typy_streaks(user)["max_streak"], streak_tiers),
+    from .achievements import TIERS, GOAL_TIERS, REPEAT_TIERS, STREAK_TIERS, MASTERY_TIERS
+    states = {item.achievement.code: item for item in unlocks}
+    def progress(code, thresholds):
+        return _progress(states[code].progress if code in states else 0, thresholds)
+    paths = {
+        "typy": progress("TYPY", TIERS), "gole": progress("GOLE", GOAL_TIERS),
+        "typy_again": progress("TYPY_AGAIN", REPEAT_TIERS),
+        "gole_again": progress("GOLE_AGAIN", REPEAT_TIERS),
+        "streak": progress("STREAK", STREAK_TIERS),
     }
-    mastery=[]
-    for code,name in league_codes:
-        data=_progress(sum(1 for score in completed_scores for item in score.breakdown if item.get("typy") and Match.objects.filter(pk=item.get("effective_match"),competition_season__competition__code=code).exists()), [("BRONZE",10),("SILVER",25),("GOLD",50),("PLATINUM",100),("DIAMOND",250)])
-        mastery.append({"code":code,"name":name,"data":data})
+    mastery = [{"code":code, "name":name, "data":progress(f"MASTERY_{code}", MASTERY_TIERS)}
+               for code, name in league_codes]
+    streak_state = states.get("STREAK")
+    streaks = streak_state.context_data if streak_state else {"current_streak":0, "max_streak":0}
     history, history_rounds = public_history(user, page, competition, result, round_id)
-    return {"statistics":calculate_player_statistics(user), "streaks":typy_streaks(user), "performance":current_performance(user), "history":history, "history_rounds":history_rounds, "achievements":unlocks, "trophies":trophy_rows, "paths":paths, "mastery":mastery, "competitions":Competition.objects.order_by("name")}
+    return {"statistics":calculate_player_statistics(user), "streaks":streaks, "performance":current_performance(user), "history":history, "history_rounds":history_rounds, "achievements":[item for item in unlocks if item.unlocked], "trophies":trophy_rows, "paths":paths, "mastery":mastery, "competitions":Competition.objects.order_by("name")}

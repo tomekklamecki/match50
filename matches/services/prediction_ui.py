@@ -5,6 +5,7 @@ from django.utils import timezone
 from matches.models import ChipAssignment, Prediction
 from .effective_match import prediction_match_ids_for_round, resolve_effective_match
 from .league_flags import flag_presentations
+from .team_visuals import match_presentation
 
 
 def persisted_state(user, round_, matches):
@@ -22,7 +23,7 @@ def persisted_state(user, round_, matches):
             "outcomes": assignment.outcomes if assignment and assignment.chip == ChipAssignment.Chip.DOUBLE_PICK else [prediction.predicted_result] if prediction else [],
             "goals": prediction.total_goals if prediction and prediction.total_goals is not None else "",
             "predicted": bool(prediction), "league": effective.league,
-            "teams": f"{effective.home_team} – {effective.away_team}",
+            **match_presentation(effective),
         }
     return slots
 
@@ -58,7 +59,7 @@ def presentation_state(user, round_, matches):
             "predicted": bool(match.saved_prediction),
             "league": match.effective_match.league,
             "teams": f"{match.effective_match.home_team} – {match.effective_match.away_team}",
-            "original": {"teams": f"{match.home_team} – {match.away_team}", "league": match.league, "kickoff": timezone.localtime(match.kickoff).strftime("%d.%m.%Y · %H:%M")},
-            "replacement": {"teams": f"{match.swap_candidate.home_team} – {match.swap_candidate.away_team}", "league": match.swap_candidate.league, "kickoff": timezone.localtime(match.swap_candidate.kickoff).strftime("%d.%m.%Y · %H:%M")} if match.swap_candidate else None,
+            "original": {**match_presentation(match), "league": match.league, "kickoff": timezone.localtime(match.kickoff).strftime("%d.%m.%Y · %H:%M")},
+            "replacement": {**match_presentation(match.swap_candidate), "league": match.swap_candidate.league, "kickoff": timezone.localtime(match.swap_candidate.kickoff).strftime("%d.%m.%Y · %H:%M")} if match.swap_candidate else None,
         }
     return {"round": round_.id, "total": round_.match_count, "future": round_.is_future_preview, "slots": slots, "leagueFlags": flag_presentations()}

@@ -15,6 +15,7 @@
   let view = 'list', index = 0, busy = false, partialAccepted = false;
   let goalsInput = null;
   const pendingChips = new Map();
+  const selectedLeagues = new Set();
   const slot = card => state.slots[card.dataset.matchId];
   const checks = card => [...card.querySelectorAll('.choice input')];
   const selected = card => checks(card).filter(input => input.checked).map(input => input.value);
@@ -72,6 +73,32 @@
     element.append(document.createTextNode(`${element.childNodes.length ? ' ' : ''}${league}`));
   }
 
+  function applyShirt(shirt, config, label) {
+    if (!shirt || !config) return;
+    shirt.style.setProperty('--shirt-primary', config.primary);
+    shirt.style.setProperty('--shirt-secondary', config.secondary);
+    shirt.dataset.shirtPattern = config.pattern;
+    shirt.setAttribute('aria-label', `Koszulka: ${label}`);
+  }
+
+  function renderTeams(card, display) {
+    const home = card.querySelector('[data-team-home]');
+    const away = card.querySelector('[data-team-away]');
+    const shirts = card.querySelectorAll('[data-team-shirt]');
+    home.textContent = display.home;
+    away.textContent = display.away;
+    card.querySelector('.team-separator').textContent = '\u00a0—\u00a0';
+    applyShirt(shirts[0], display.homeShirt, display.home);
+    applyShirt(shirts[1], display.awayShirt, display.away);
+  }
+
+  function applyLeagueFilter() {
+    if (view !== 'list') return;
+    allSlots.forEach(match => {
+      match.hidden = selectedLeagues.size > 0 && !selectedLeagues.has(slot(match).league);
+    });
+  }
+
   function progress() {
     if (!toolbar) return;
     const values = Object.values(state.slots), predicted = values.filter(s => s.predicted).length;
@@ -84,9 +111,24 @@
       count[0] += Number(s.predicted); count[1]++;
       leagues.set(s.league, count);
     });
+    [...selectedLeagues].forEach(league => {
+      if (!leagues.has(league)) selectedLeagues.delete(league);
+    });
     document.getElementById('league-progress').replaceChildren(...[...leagues].map(([name, counts]) => {
-      const label = document.createElement('span'); leagueLabel(label, name);
-      label.append(document.createTextNode(` ${counts[0]}/${counts[1]}`)); return label;
+      const label = document.createElement('button');
+      label.type = 'button'; label.className = 'league-filter'; label.dataset.league = name;
+      leagueLabel(label, name);
+      label.append(document.createTextNode(` ${counts[0]}/${counts[1]}`));
+      label.setAttribute('aria-pressed', String(selectedLeagues.has(name)));
+      label.addEventListener('click', () => {
+        if (selectedLeagues.has(name)) selectedLeagues.delete(name);
+        else selectedLeagues.add(name);
+        document.querySelectorAll('.league-filter').forEach(button => {
+          button.setAttribute('aria-pressed', String(selectedLeagues.has(button.dataset.league)));
+        });
+        applyLeagueFilter();
+      });
+      return label;
     }));
     const rules = values[0]?.chips || {};
     document.getElementById('chip-progress').replaceChildren(...Object.entries(rules).map(([chip, r]) => {
@@ -111,7 +153,7 @@
       card.querySelector('.pick-hint').textContent = rules.limit === 2 ? 'DOUBLE PICK — WYBIERZ 2' : 'Wybierz wynik meczu';
       const display = rules.replacement ? slot(card).replacement : slot(card).original;
       if (display) {
-        card.querySelector('.teams').textContent = display.teams;
+        renderTeams(card, display);
         leagueLabel(card.querySelector('.match-league'), display.league);
         card.querySelector('.league-kickoff').textContent = display.kickoff;
         card.querySelector('.match-time').textContent = display.kickoff;
@@ -127,21 +169,20 @@
         else if (!active && config.requiresPick && !picks.length) reason = 'Najpierw wybierz wynik';
         button.disabled = !!reason;
         button.classList.toggle('active', active);
+        button.classList.toggle('used-elsewhere', !!used && !active);
         button.setAttribute('aria-pressed', String(active));
-        button.title = reason || config.label;
-        button.setAttribute('aria-label', `${config.label}: ${reason || (active ? 'Aktywny' : 'Dostępny')}`);
-        button.querySelector('.chip-state').textContent = reason ? (used ? 'Użyty ↗' : 'Niedostępny') : (active ? '✓ Aktywny' : 'Dostępny');
+        button.title = config.label;
+        button.setAttribute('aria-label', config.label);
       });
       const goals = card.querySelector('.goal-input'), trigger = card.querySelector('.goal-picker');
       if (trigger) {
         trigger.textContent = view === 'list' ? (goals.value === '' ? '+ GOLE' : goals.value) : (goals.value === '' ? 'OBSTAW GOLE' : `GOLE: ${goals.value} · ZMIEŃ`);
         trigger.setAttribute('aria-label', goals.value === '' ? 'Obstaw gole' : `GOLE: ${goals.value} — zmień`);
       }
-      card.querySelector('.teams').title = card.querySelector('.teams').textContent;
+      card.querySelector('.teams').title = display?.teams || '';
       card.querySelector('.match-league').title = `${display?.league || ''} · ${display?.kickoff || ''}`;
       const compact = card.querySelector('.chip-picker');
-      const activeButton = card.querySelector(`[data-chip="${current}"]`);
-      compact.textContent = current ? `${activeButton?.firstChild.textContent.trim() || '◇'} ${slot(card).chips[current].label}` : '◇ CHIP';
+      compact.textContent = current ? slot(card).chips[current].label : 'CHIP';
       compact.title = current ? slot(card).chips[current].label : 'Wybierz chip';
       if (pendingChips.has(card)) {
         compact.textContent = `${slot(card).chips[pendingChips.get(card).chip].label} · wybierz ${rules.limit}`;
@@ -156,6 +197,7 @@
     });
     // Summary always uses server-confirmed state, never the unsaved row inputs.
     progress();
+    applyLeagueFilter();
   }
 
   function display() {
@@ -294,7 +336,6 @@
       const title = document.createElement('h2'); title.textContent = 'Wybierz chip';
       const buttons = [...card.querySelectorAll('[data-chip]')].map(original => {
         const clone = original.cloneNode(true);
-        clone.querySelector('.chip-state').textContent = original.title;
         const config = slot(card).chips[original.dataset.chip];
         const removing = chipValue(card) === original.dataset.chip;
         clone.addEventListener('click', async () => {
@@ -320,8 +361,6 @@
       openPicker(chipDialog, compact);
     });
     card.querySelectorAll('[data-chip]').forEach(button => {
-      const label = document.createElement('small'); label.textContent = slot(card).chips[button.dataset.chip].label;
-      const status = document.createElement('span'); status.className = 'chip-state'; button.append(label, status);
       button.addEventListener('click', () => {
         const input = chipInput(card); input.value = input.value === button.dataset.chip ? '' : button.dataset.chip;
         // Removing DOUBLE PICK deterministically keeps the first selected outcome.
@@ -369,7 +408,6 @@
     if (button.dataset.view === view) return;
     const changeView = () => {
       view = button.dataset.view;
-      try { localStorage.setItem('match50.predictionView', view); } catch (_) { /* Preferences may be blocked. */ }
     };
     leave(changeView, view === 'list', true);
   }));
@@ -410,11 +448,8 @@
   });
   if (toolbar) {
     toolbar.hidden = false;
-    try { view = localStorage.getItem('match50.predictionView') || (matchMedia('(max-width: 700px)').matches ? 'card' : 'list'); }
-    catch (_) { view = matchMedia('(max-width: 700px)').matches ? 'card' : 'list'; }
-    if (!['list', 'card'].includes(view)) view = 'list';
-    // A saved Card View preference must never hide a results-only Current Round.
-    if (!cards.length) view = 'list';
+    // Each Current or Future Round starts in LISTA; view changes are page-local.
+    view = 'list';
   }
   refresh(); display();
 })();

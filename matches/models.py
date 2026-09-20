@@ -177,9 +177,19 @@ class Draft(models.Model):
 
 
 class Team(models.Model):
+    class ShirtPattern(models.TextChoices):
+        SOLID = "SOLID", "Solid"
+        VERTICAL_STRIPES = "VERTICAL_STRIPES", "Vertical stripes"
+        HORIZONTAL_HOOPS = "HORIZONTAL_HOOPS", "Horizontal hoops"
+        CONTRAST_SLEEVES = "CONTRAST_SLEEVES", "Contrast sleeves"
+        HALVES = "HALVES", "Half-and-half"
+
     name = models.CharField(max_length=100, unique=True)
     short_name = models.CharField(max_length=30, blank=True)
     active = models.BooleanField(default=True)
+    shirt_primary = models.CharField(max_length=7, default="#94a3b8")
+    shirt_secondary = models.CharField(max_length=7, default="#e2e8f0")
+    shirt_pattern = models.CharField(max_length=24, choices=ShirtPattern.choices, default=ShirtPattern.SOLID)
     def __str__(self): return self.name
 
 
@@ -545,7 +555,7 @@ class ChipAssignment(models.Model):
     class Chip(models.TextChoices):
         BANKER = "BANKER", "Banker"
         DOUBLE_PICK = "DOUBLE_PICK", "Double Pick"
-        CHANGE_MIND = "CHANGE_MIND", "I've Changed My Mind"
+        CHANGE_MIND = "CHANGE_MIND", "VAR"
         SWAP = "SWAP", "Swap"
         GOOOOOOOAL = "GOOOOOOOOAL", "Goooooooal!"
 
@@ -621,6 +631,8 @@ class UserRoundScore(models.Model):
 
 
 class Achievement(models.Model):
+    repeatable = models.BooleanField(default=False)
+    max_stars = models.PositiveSmallIntegerField(default=5)
     code = models.CharField(max_length=80, unique=True)
     name = models.CharField(max_length=120)
     description = models.TextField()
@@ -632,6 +644,11 @@ class Achievement(models.Model):
 
 
 class UserAchievement(models.Model):
+    unlocked = models.BooleanField(default=True)
+    progress = models.PositiveIntegerField(default=0)
+    current_tier = models.CharField(max_length=20, blank=True)
+    stars = models.PositiveSmallIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="achievements")
     achievement = models.ForeignKey(Achievement, on_delete=models.CASCADE, related_name="unlocks")
     unlocked_at = models.DateTimeField(auto_now_add=True)
@@ -659,6 +676,19 @@ class MatchKickoffSnapshot(models.Model):
 
 
 class AchievementNotification(models.Model):
-    user_achievement = models.OneToOneField(UserAchievement, on_delete=models.CASCADE, related_name="notification")
+    user_achievement = models.ForeignKey(UserAchievement, on_delete=models.CASCADE, related_name="notifications")
+    event_key = models.CharField(max_length=120, default="unlock")
     created_at = models.DateTimeField(auto_now_add=True)
     consumed_at = models.DateTimeField(null=True, blank=True)
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user_achievement", "event_key"], name="unique_achievement_notification")]
+
+
+class AchievementOccurrence(models.Model):
+    user_achievement = models.ForeignKey(UserAchievement, on_delete=models.CASCADE, related_name="occurrences")
+    event_key = models.CharField(max_length=120)
+    context = models.JSONField(default=dict)
+    earned_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user_achievement", "event_key"], name="unique_achievement_occurrence")]

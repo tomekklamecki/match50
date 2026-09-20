@@ -417,7 +417,7 @@ class FinishedMatchCardTests(TestCase):
 
         response = self.client.get(reverse("typy"))
         self.assertContains(response, "BANKER")
-        self.assertContains(response, "I'VE CHANGED MY MIND")
+        self.assertContains(response, "VAR")
         self.assertContains(response, "GOOOOOOOOAL!")
         self.assertContains(response, "Goal Home")
         self.assertContains(response, 'id="chip-progress"')
@@ -680,6 +680,9 @@ class FinalStageSixTests(TestCase):
         self.assertTrue(UserAchievement.objects.filter(user=self.user,achievement__code=f"DAVID_{match.id}").exists())
 
     def test_photo_finish_unlocks_for_tied_leaders(self):
+        self.round.match_count = 1
+        self.round.save(update_fields=["match_count"])
+        Match.objects.create(round=self.round, league="L", home_team="A", away_team="B", kickoff=timezone.now()-timedelta(days=1), home_goals=1, away_goals=0)
         other=get_user_model().objects.create_user(username="tie",password="secret")
         UserRoundScore.objects.create(user=self.user,round=self.round,typy_points=2)
         UserRoundScore.objects.create(user=other,round=self.round,typy_points=2)
@@ -687,14 +690,17 @@ class FinalStageSixTests(TestCase):
         self.assertEqual(UserAchievement.objects.filter(achievement__code="PHOTO_FINISH").count(),2)
 
     def test_profile_progress_uses_actual_typy_value_between_tiers(self):
-        UserRoundScore.objects.create(user=self.user, round=self.round, typy_points=18)
+        from .services.achievements import _tiers, TIERS
+        _tiers(self.user, "TYPY", "TYPY", 18, TIERS, {})
         progress = profile_data(self.user)["paths"]["typy"]
         self.assertEqual(progress["progress"], 18)
         self.assertEqual(progress["next"], ("GOLD", 20))
         self.assertEqual(progress["percent"], 90)
 
-    @patch("matches.services.profile.typy_streaks", return_value={"current_streak": 7, "max_streak": 7})
+    @patch("matches.services.achievements.typy_streaks", return_value={"current_streak": 7, "max_streak": 7})
     def test_profile_progress_uses_actual_streak_between_tiers(self, _streaks):
+        from .services.achievements import evaluate_score
+        evaluate_score(UserRoundScore.objects.create(user=self.user, round=self.round))
         progress = profile_data(self.user)["paths"]["streak"]
         self.assertEqual(progress["progress"], 7)
         self.assertEqual(progress["next"], ("SILVER", 8))
@@ -706,6 +712,8 @@ class FinalStageSixTests(TestCase):
         season = CompetitionSeason.objects.create(competition=competition, season_label="2026/27", champion_team=team)
         match = Match.objects.create(round=self.round, league="Premier League", home_team="Arsenal", away_team="Chelsea", kickoff=timezone.now()-timedelta(days=1), home_goals=1, away_goals=0, competition_season=season, home_team_entity=team)
         UserRoundScore.objects.create(user=self.user, round=self.round, breakdown=[{"effective_match": match.id, "typy": 1}] * 18)
+        from .services.achievements import evaluate_user
+        evaluate_user(self.user)
         data = profile_data(self.user)
         mastery = next(item["data"] for item in data["mastery"] if item["code"] == "EPL")
         self.assertEqual((mastery["progress"], mastery["next"], mastery["percent"]), (18, ("SILVER", 25), 72))

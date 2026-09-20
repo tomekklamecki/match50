@@ -164,10 +164,12 @@ def typy(request):
         Round.objects.select_for_update().get(pk=active_round.pk)
         if request.prediction_card and request.POST.get("round_id") != str(active_round.pk):
             return HttpResponseBadRequest("Kolejka zmieniła się. Odśwież stronę przed zapisem.")
-    matches = list(active_round.matches.order_by("kickoff", "id"))
+    matches = list(active_round.matches.select_related("home_team_entity", "away_team_entity").order_by("kickoff", "id"))
     assignments = []
     if request.user.is_authenticated:
-        assignments = list(ChipAssignment.objects.filter(user=request.user, round=active_round).select_related("replacement_match"))
+        assignments = list(ChipAssignment.objects.filter(user=request.user, round=active_round).select_related(
+            "replacement_match__home_team_entity", "replacement_match__away_team_entity"
+        ))
     existing = {}
     if request.user.is_authenticated:
         scoped_match_ids = prediction_match_ids_for_round(active_round, assignments)
@@ -391,11 +393,11 @@ def render_typy(request, active_round, matches, existing, form_data=None, needs_
             match.saved_outcomes = form_data.getlist(f"result_{match.id}") if match.saved_chip == ChipAssignment.Chip.DOUBLE_PICK else []
             match.saved_goal_team = form_data.get(f"goal_team_{match.id}", match.saved_goal_team)
     chip_options = [
-        ("BANKER", "B", "Trafiony typ daje +2 bonusu. Pudło: -1."),
-        ("DOUBLE_PICK", "2X", "Możesz wskazać dwa wyniki w tym meczu."),
-        ("CHANGE_MIND", "↺", "Możesz zmienić typ do 60 minut po rozpoczęciu meczu."),
-        ("SWAP", "⇄", "Zamień ten mecz na mecz, który przegrał z nim w Drafcie."),
-        ("GOOOOOOOOAL", "G!", "Za każde 2 gole wybranej drużyny otrzymasz +1 bonusu."),
+        ("BANKER", "BANKER", "Trafiony typ daje +2 bonusu. Pudło: -1."),
+        ("DOUBLE_PICK", "DOUBLE PICK", "Możesz wskazać dwa wyniki w tym meczu."),
+        ("CHANGE_MIND", "VAR", "Możesz zmienić typ do 60 minut po rozpoczęciu meczu."),
+        ("SWAP", "SWAP", "Zamień ten mecz na mecz, który przegrał z nim w Drafcie."),
+        ("GOOOOOOOOAL", "GOOOOOOOOAL!", "Za każde 2 gole wybranej drużyny otrzymasz +1 bonusu."),
     ]
     score = UserRoundScore.objects.filter(user=request.user, round=active_round).first() if request.user.is_authenticated else None
     score_by_match = {item["match"]: item for item in score.breakdown} if score else {}
