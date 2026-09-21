@@ -8,12 +8,12 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .models import ChipAssignment, Draft, DraftModifierVote, DraftPair, DraftVote, GlobalModifier, Match50Season, Prediction, Round, UserRoundScore
+from .models import ChipAssignment, Competition, Draft, DraftModifierVote, DraftPair, DraftVote, GlobalModifier, Match50Season, Prediction, Round, UserRoundScore
 from .services.effective_match import draft_loser_for_winner, prediction_match_ids_for_round, resolve_effective_match
 from .services.match_cards import prepare_settled_match
 from .services.lifecycle import get_current_round, get_previous_completed_round, get_future_round_for_current_draft
 from .services.rankings import month_ranking, round_ranking, season_ranking, top_with_current
-from .services.profile import profile_data, public_history
+from .services.profile import profile_data, public_history, round_history_summaries
 from django.contrib.auth import get_user_model
 
 
@@ -54,7 +54,37 @@ def rankings(request):
 
 def player_profile(request, username):
     player = get_object_or_404(get_user_model(), username=username)
-    return render(request, "matches/profile.html", {"player": player, **profile_data(player, request.GET.get("page", 1), request.GET.get("competition"), request.GET.get("result"), request.GET.get("round"))})
+    return render(request, "matches/profile.html", {"player": player, **profile_data(player)})
+
+
+def player_round_history(request, username):
+    player = get_object_or_404(get_user_model(), username=username)
+    summaries = round_history_summaries(player)
+    selected_index = 0
+    requested_round = request.GET.get("round")
+    if requested_round:
+        selected_index = next(
+            (index for index, item in enumerate(summaries) if str(item["round"].id) == requested_round),
+            0,
+        )
+    selected = summaries[selected_index] if summaries else None
+    history = None
+    if selected:
+        history, _ = public_history(
+            player,
+            competition=request.GET.get("competition"),
+            result=request.GET.get("result"),
+            round_id=selected["round"].id,
+        )
+    return render(request, "matches/round_history.html", {
+        "player": player,
+        "round_summaries": summaries,
+        "selected_summary": selected,
+        "history": history,
+        "newer_summary": summaries[selected_index - 1] if selected and selected_index > 0 else None,
+        "older_summary": summaries[selected_index + 1] if selected and selected_index + 1 < len(summaries) else None,
+        "competitions": Competition.objects.order_by("name"),
+    })
 
 
 def placeholder(request, section):
@@ -164,7 +194,8 @@ def typy(request):
         Round.objects.select_for_update().get(pk=active_round.pk)
         if request.prediction_card and request.POST.get("round_id") != str(active_round.pk):
             return HttpResponseBadRequest("Kolejka zmieniła się. Odśwież stronę przed zapisem.")
-    matches = list(active_round.matches.select_related("home_team_entity", "away_team_entity").order_by("kickoff", "id"))
+    from .services.match_order import ordered_matches
+    matches = ordered_matches(active_round, active_round.matches.select_related("home_team_entity", "away_team_entity"))
     assignments = []
     if request.user.is_authenticated:
         assignments = list(ChipAssignment.objects.filter(user=request.user, round=active_round).select_related(

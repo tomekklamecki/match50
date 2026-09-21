@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 db.sqlite3
 .env
+
+# Local database / repair backups
+db_before_*.sqlite3
+*_before_repair.json

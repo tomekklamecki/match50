@@ -1,5 +1,6 @@
 from django.core.paginator import Paginator
-from matches.models import ChipAssignment, Competition, Match, Match50Season, Prediction, Round, TrophyFinish, UserAchievement, UserRoundScore
+from math import ceil
+from matches.models import ChipAssignment, Match, Match50Season, Prediction, Round, TrophyFinish, UserAchievement, UserRoundScore
 from matches.services.match_cards import prepare_settled_match
 from matches.services.player_statistics import calculate_player_statistics
 from matches.services.rankings import month_ranking, round_ranking, season_ranking
@@ -35,7 +36,8 @@ def public_history(user, page=1, competition=None, result=None, round_id=None):
         score_by_match = {item.get("match", item.get("effective_match")): item for item in score.breakdown} if score else {}
         predictions = {}
         slots = []
-        for original in round_.matches.all().order_by("kickoff", "id"):
+        from matches.services.match_order import ordered_matches
+        for original in ordered_matches(round_):
             assignment = assignments.get((round_.id, original.id))
             effective = assignment.replacement_match if assignment and assignment.chip == ChipAssignment.Chip.SWAP else original
             if effective.id not in predictions:
@@ -72,6 +74,43 @@ def public_history(user, page=1, competition=None, result=None, round_id=None):
     return Paginator(groups, 1).get_page(page), all_candidates
 
 
+def round_history_summaries(user):
+    """Return the player's classified, completed rounds from newest to oldest."""
+    rounds = list(
+        Round.objects.filter(user_scores__user=user)
+        .prefetch_related("matches")
+        .order_by("-ranking_date", "-id")
+        .distinct()
+    )
+    round_medals = {
+        trophy.period_key: trophy.rank
+        for trophy in TrophyFinish.objects.filter(user=user, scope=TrophyFinish.Scope.ROUND)
+    }
+    medal_labels = {1: "🥇", 2: "🥈", 3: "🥉"}
+    summaries = []
+    for round_ in rounds:
+        if not _is_completed_round(round_):
+            continue
+        entries = round_ranking(round_)
+        entry = next((item for item in entries if item.user_id == user.id), None)
+        if entry is None:
+            continue
+        finish_position = round_medals.get(str(round_.id))
+        medal = medal_labels.get(finish_position, "")
+        top_percent = max(1, ceil(entry.rank * 100 / len(entries)))
+        summaries.append({
+            "round": round_,
+            "points": entry.total,
+            "rank": entry.rank,
+            "classified_count": len(entries),
+            "top_percent": top_percent,
+            "finish_position": finish_position,
+            "medal": medal,
+            "result_status": medal or f"TOP {top_percent}%",
+        })
+    return summaries
+
+
 def _progress(value, thresholds):
     """Return display state from the player's real metric, not unlocked tiers."""
     current = next((tier for tier, threshold in reversed(thresholds) if value >= threshold), None)
@@ -102,7 +141,6 @@ def current_performance(user):
 
 def profile_data(user, page=1, competition=None, result=None, round_id=None):
     unlocks=list(UserAchievement.objects.filter(user=user).select_related("achievement").order_by("-unlocked_at"))
-    tiers=[("BRONZE",10),("SILVER",15),("GOLD",20),("PLATINUM",25),("DIAMOND",30)]
     league_codes=[("EPL","Premier League"),("LALIGA","La Liga"),("BUNDESLIGA","Bundesliga"),("SERIEA","Serie A"),("LIGUE1","Ligue 1"),("EKSTRAKLASA","Ekstraklasa"),("UCL","Champions League"),("UEL","Europa League"),("UECL","Conference League")]
     trophy_rows=[]; trophies=TrophyFinish.objects.filter(user=user)
     for scope,label in (("ROUND","KOLEJKI"),("MONTH","MIESIĄCE"),("SEASON","SEZONY")):
@@ -111,15 +149,19 @@ def profile_data(user, page=1, competition=None, result=None, round_id=None):
     states = {item.achievement.code: item for item in unlocks}
     def progress(code, thresholds):
         return _progress(states[code].progress if code in states else 0, thresholds)
-    paths = {
-        "typy": progress("TYPY", TIERS), "gole": progress("GOLE", GOAL_TIERS),
-        "typy_again": progress("TYPY_AGAIN", REPEAT_TIERS),
-        "gole_again": progress("GOLE_AGAIN", REPEAT_TIERS),
-        "streak": progress("STREAK", STREAK_TIERS),
-    }
+    paths = {}
+    for key, code, label, thresholds in (
+        ("typy", "TYPY", "TYPY", TIERS),
+        ("typy_again", "TYPY_AGAIN", "TYPY — DO IT AGAIN", REPEAT_TIERS),
+        ("gole", "GOLE", "GOLE", GOAL_TIERS),
+        ("gole_again", "GOLE_AGAIN", "GOLE — DO IT AGAIN", REPEAT_TIERS),
+        ("streak", "STREAK", "SERIA", STREAK_TIERS),
+        ("streak_again", "STREAK_AGAIN", "SERIA — DO IT AGAIN", REPEAT_TIERS),
+    ):
+        discovered = not key.endswith("_again") or bool(code in states and states[code].context_data.get("discovered"))
+        paths[key] = {**progress(code, thresholds), "label": label, "discovered": True} if discovered else {"label": "???????", "discovered": False}
     mastery = [{"code":code, "name":name, "data":progress(f"MASTERY_{code}", MASTERY_TIERS)}
                for code, name in league_codes]
     streak_state = states.get("STREAK")
     streaks = streak_state.context_data if streak_state else {"current_streak":0, "max_streak":0}
-    history, history_rounds = public_history(user, page, competition, result, round_id)
-    return {"statistics":calculate_player_statistics(user), "streaks":streaks, "performance":current_performance(user), "history":history, "history_rounds":history_rounds, "achievements":[item for item in unlocks if item.unlocked], "trophies":trophy_rows, "paths":paths, "mastery":mastery, "competitions":Competition.objects.order_by("name")}
+    return {"statistics":calculate_player_statistics(user), "streaks":streaks, "performance":current_performance(user), "round_history_preview":round_history_summaries(user)[:5], "achievements":[item for item in unlocks if item.unlocked], "trophies":trophy_rows, "paths":paths, "mastery":mastery}

@@ -1,0 +1,12 @@
+{% extends "matches/base.html" %}{% load static prediction_labels %}{% block content %}
+<link rel="stylesheet" href="{% static 'matches/profile.css' %}">
+<link rel="stylesheet" href="{% static 'matches/predictions.css' %}">
+<section class="section card round-history-page">
+  <div class="history-page-heading"><div><div class="profile-kicker">PROFIL GRACZA · {{ player.username }}</div><h1>HISTORIA KOLEJEK</h1></div><a class="button secondary" href="{% url 'player_profile' player.username %}">WRÓĆ DO PROFILU</a></div>
+  {% if selected_summary %}
+    <form method="get" class="history-filters"><input type="hidden" name="round" value="{{ selected_summary.round.id }}"><select name="competition"><option value="">Wszystkie rozgrywki</option>{% for c in competitions %}<option value="{{ c.code }}"{% if request.GET.competition == c.code %} selected{% endif %}>{{ c.name }}</option>{% endfor %}</select><select name="result"><option value="">Wszystkie</option><option value="hit"{% if request.GET.result == 'hit' %} selected{% endif %}>Trafione</option><option value="miss"{% if request.GET.result == 'miss' %} selected{% endif %}>Nietrafione</option></select><button class="button secondary">FILTRUJ</button></form>
+    <nav class="round-history-navigation">{% if older_summary %}<a href="?round={{ older_summary.round.id }}">←</a>{% else %}<span></span>{% endif %}<div><h2>{{ selected_summary.round.name }}</h2><strong>{{ selected_summary.points }} PKT · TOP {{ selected_summary.top_percent }}%</strong></div>{% if newer_summary %}<a href="?round={{ newer_summary.round.id }}">→</a>{% else %}<span></span>{% endif %}</nav>
+    {% for group in history %}<section class="round-summary card"><div class="m">KOLEJKA · {{ group.starts_at|date:"d.m.Y" }}—{{ group.ends_at|date:"d.m.Y" }}</div><strong>TYPY {{ group.score.typy_points|default:0 }} · GOLE {{ group.score.gole_points|default:0 }} · BONUSY {{ group.score.bonus_points|default:0 }} · TOTAL {{ group.score.total_points|default:0 }}{% if group.rank %} · MIEJSCE #{{ group.rank }}{% endif %}</strong>{% for match in group.slots %}{% include "matches/_current_match_row.html" %}{% endfor %}</section>{% empty %}<p>Brak wyników spełniających wybrane filtry.</p>{% endfor %}
+  {% else %}<p class="profile-empty">Nie masz jeszcze kolejek do wyświetlenia.</p>{% endif %}
+</section>
+{% endblock %}

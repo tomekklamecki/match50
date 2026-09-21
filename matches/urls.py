@@ -11,6 +11,7 @@ urlpatterns = [
     path("draft/pairs/<int:pair_id>/vote/", views.draft_vote, name="draft_vote"),
     path("draft/modifiers/<int:modifier_id>/vote/", views.draft_modifier_vote, name="draft_modifier_vote"),
     path("rankings/", views.rankings, name="rankings"),
+    path("players/<str:username>/history/", views.player_round_history, name="player_round_history"),
     path("players/<str:username>/", views.player_profile, name="player_profile"),
     path("stats/", views.placeholder, {"section": "stats"}, name="stats"),
     path("rules/", views.placeholder, {"section": "rules"}, name="rules"),

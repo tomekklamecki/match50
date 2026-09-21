@@ -6,6 +6,23 @@ from matches.models import Draft, Match, Round
 FINAL = {Match.Status.FINISHED, Match.Status.CANCELLED}
 
 
+def promote_round(round_):
+    """Activate a complete Future round without changing its slots or picks."""
+    from django.core.exceptions import ValidationError
+    from django.db import transaction
+    from matches.services.match_order import freeze_match_order
+    with transaction.atomic():
+        locked = Round.objects.select_for_update().get(pk=round_.pk)
+        if not freeze_match_order(locked):
+            raise ValidationError("A complete Round is required before promotion.")
+        Round.objects.filter(is_active=True).exclude(pk=locked.pk).update(is_active=False)
+        locked.is_active = True
+        locked.save(update_fields=["is_active"])
+        round_.is_active = True
+        round_.frozen_match_order = locked.frozen_match_order
+    return round_
+
+
 def get_current_round():
     return Round.objects.filter(is_active=True).first()
 

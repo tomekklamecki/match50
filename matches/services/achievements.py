@@ -7,10 +7,12 @@ from matches.services.rankings import month_ranking, round_ranking, season_ranki
 from matches.services.lifecycle import is_completed_round
 from matches.services.streaks import typy_streaks
 
-TIERS = list(zip(("BRONZE","SILVER","GOLD","PLATINUM","DIAMOND"), (10,15,20,25,30)))
-GOAL_TIERS = list(zip(("BRONZE","SILVER","GOLD","PLATINUM","DIAMOND"), (2,4,6,8,10)))
-REPEAT_TIERS = list(zip(("BRONZE","SILVER","GOLD","PLATINUM","DIAMOND"), (2,4,10,20,50)))
-STREAK_TIERS = list(zip(("BRONZE","SILVER","GOLD","PLATINUM","DIAMOND"), (3,8,15,22,30)))
+CORE_NAMES = ("BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND", "GODLIKE")
+TIERS = list(zip(CORE_NAMES, (10,14,18,22,26,30)))
+GOAL_TIERS = list(zip(CORE_NAMES, (1,3,5,7,9,10)))
+REPEAT_TIERS = list(zip(CORE_NAMES, (1,3,8,15,25,50)))
+STREAK_TIERS = list(zip(CORE_NAMES, (4,8,12,16,20,25)))
+CORE_CODES = ("TYPY", "GOLE", "STREAK", "TYPY_AGAIN", "GOLE_AGAIN", "STREAK_AGAIN")
 MASTERY_TIERS = list(zip(("BRONZE","SILVER","GOLD","PLATINUM","DIAMOND"), (10,25,50,100,250)))
 LEAGUES = {"EPL":"Premier League","LALIGA":"La Liga","BUNDESLIGA":"Bundesliga",
     "SERIEA":"Serie A","LIGUE1":"Ligue 1","EKSTRAKLASA":"Ekstraklasa",
@@ -52,13 +54,22 @@ def _tiers(user, prefix, name, value, thresholds, context):
     state, _ = UserAchievement.objects.get_or_create(user=user, achievement=definition,
                                                     defaults={"unlocked":False})
     state = UserAchievement.objects.select_for_update().get(pk=state.pk)
-    state.progress = max(state.progress, value)
+    core = prefix in CORE_CODES
+    if core:
+        definition.metadata = {**definition.metadata, "thresholds": thresholds, "core": True}
+        definition.save(update_fields=["metadata"])
+        state.current_tier = ""
+        UserAchievement.objects.filter(user=user, achievement__category=prefix, achievement__tier__in=CORE_NAMES).update(unlocked=False)
+    state.progress = value if core else max(state.progress, value)
     state.context_data = context
     newly = []
     for tier, threshold in thresholds:
         if state.progress >= threshold:
             unlock, created = _unlock(user, f"{prefix}_{tier}", f"{name} {tier}", prefix,
                                       tier, {**context, "progress":state.progress})
+            if core and not unlock.unlocked:
+                unlock.unlocked = True
+                unlock.save(update_fields=["unlocked"])
             state.current_tier = tier
             if created:
                 newly.append(unlock)
@@ -74,13 +85,9 @@ def _round_progress(user, score):
     # A SWAP replacement must also be settled before this user's round award.
     if len(score.breakdown) != score.round.match_count:
         return
+    from matches.services.core_progression import rebuild_round_core
+    rebuild_round_core(user)
     context = {"round":score.round_id}
-    _tiers(user,"TYPY","TYPY",score.typy_points,TIERS,context)
-    _tiers(user,"GOLE","GOLE",score.gole_points,GOAL_TIERS,context)
-    completed = [s for s in UserRoundScore.objects.filter(user=user).select_related("round")
-                 if is_completed_round(s.round) and len(s.breakdown) == s.round.match_count]
-    _tiers(user,"TYPY_AGAIN","TYPY DO IT AGAIN",sum(s.typy_points >= 20 for s in completed),REPEAT_TIERS,context)
-    _tiers(user,"GOLE_AGAIN","GOLE DO IT AGAIN",sum(s.gole_points >= 6 for s in completed),REPEAT_TIERS,context)
     slots = {item.get("original_match", item.get("match")): item for item in score.breakdown}
     if (score.round.match_count == 30 and len(slots) == 30
             and all(item.get("standard_prediction") for item in slots.values())
@@ -89,11 +96,20 @@ def _round_progress(user, score):
                 context=context,repeatable=True,event_key=f"round:{score.round_id}",
                 description="Pewność siebie? 30/30. Forma? Do ciasta.")
 
-def _match_progress(user, score):
+def refresh_streak_progress(user):
+    """Rebuild the existing streak state without changing other achievements."""
     streak = typy_streaks(user)
+    UserAchievement.objects.filter(user=user, achievement__code="STREAK").update(progress=streak["max_streak"])
     _tiers(user,"STREAK","SERIA",streak["max_streak"],STREAK_TIERS,streak)
+    from matches.services.core_progression import rebuild_streak_repeat
+    rebuild_streak_repeat(user)
     if streak["max_streak"] >= 10:
         _unlock(user,"PERFECT_TEN","Perfect Ten","HIDDEN",context=streak,hidden=True)
+    return streak
+
+
+def _match_progress(user, score):
+    refresh_streak_progress(user)
     counts = dict.fromkeys(LEAGUES, 0)
     for saved in UserRoundScore.objects.filter(user=user):
         for item in saved.breakdown:
@@ -147,15 +163,27 @@ def evaluate_user(user):
     return []
 
 @transaction.atomic
-def evaluate_trophies(round_):
+def synchronize_round_trophies(round_):
+    """Reconcile persisted medals with the completed round's current ranking."""
     if not is_completed_round(round_):
-        return
+        return []
     entries = round_ranking(round_)
+    podium = [entry for entry in entries if entry.rank <= 3]
+    trophies = TrophyFinish.objects.filter(scope="ROUND", period_key=str(round_.pk))
+    trophies.exclude(user_id__in=[entry.user_id for entry in podium]).delete()
+    for entry in podium:
+        TrophyFinish.objects.update_or_create(
+            user_id=entry.user_id, scope="ROUND", period_key=str(round_.pk),
+            defaults={"rank": entry.rank},
+        )
+    return entries
+
+
+@transaction.atomic
+def evaluate_trophies(round_):
+    entries = synchronize_round_trophies(round_)
     leaders = [entry for entry in entries if entry.rank == 1]
     for entry in entries:
-        if entry.rank <= 3:
-            TrophyFinish.objects.get_or_create(user_id=entry.user_id,scope="ROUND",
-                period_key=str(round_.pk),defaults={"rank":entry.rank})
         if entry.rank == 1:
             _unlock(entry.user_id,"ROUND_CHAMPION","Mistrz kolejki","CHAMPION",
                     context={"round":round_.pk,"total":entry.total})

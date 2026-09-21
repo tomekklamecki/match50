@@ -9,12 +9,12 @@ from django.core.exceptions import ValidationError
 from django.db import DatabaseError
 from unittest.mock import patch
 
-from .models import Achievement, ChipAssignment, Competition, CompetitionSeason, Draft, DraftPair, DraftVote, GlobalModifier, Match, Match50Season, MatchKickoffSnapshot, Prediction, Round, Team, UserAchievement, UserRoundScore
+from .models import Achievement, ChipAssignment, Competition, CompetitionSeason, Draft, DraftPair, DraftVote, GlobalModifier, Match, Match50Season, MatchKickoffSnapshot, Prediction, Round, Team, TrophyFinish, UserAchievement, UserRoundScore
 from .services.scoring import recalculate_round_scores, recalculate_user_round_score
 from .services.player_statistics import calculate_player_statistics
 from .services.rankings import month_ranking, round_ranking, season_ranking, top_with_current
 from .services.achievements import evaluate_snapshot_achievements, evaluate_trophies
-from .services.profile import current_performance, profile_data, public_history
+from .services.profile import current_performance, profile_data, public_history, round_history_summaries
 from .services.effective_match import draft_loser_for_winner
 from .management.commands.seed_dev_data import Command as SeedDevDataCommand
 
@@ -694,8 +694,8 @@ class FinalStageSixTests(TestCase):
         _tiers(self.user, "TYPY", "TYPY", 18, TIERS, {})
         progress = profile_data(self.user)["paths"]["typy"]
         self.assertEqual(progress["progress"], 18)
-        self.assertEqual(progress["next"], ("GOLD", 20))
-        self.assertEqual(progress["percent"], 90)
+        self.assertEqual(progress["next"], ("PLATINUM", 22))
+        self.assertEqual(progress["percent"], 82)
 
     @patch("matches.services.achievements.typy_streaks", return_value={"current_streak": 7, "max_streak": 7})
     def test_profile_progress_uses_actual_streak_between_tiers(self, _streaks):
@@ -735,7 +735,9 @@ class FinalStageSixTests(TestCase):
         self.assertTrue(all(slot.effective_match.kickoff for slot in group["slots"]))
         self.assertEqual(calculate_player_statistics(self.user).typy.submitted, 27)
         response = self.client.get(reverse("player_profile", args=[self.user.username]))
-        self.assertContains(response, matches[0].kickoff.strftime("%d.%m.%Y"))
+        self.assertNotContains(response, matches[0].kickoff.strftime("%d.%m.%Y"))
+        history_response = self.client.get(reverse("player_round_history", args=[self.user.username]))
+        self.assertContains(history_response, matches[0].kickoff.strftime("%d.%m.%Y"))
 
     def test_history_competition_filter_shows_only_matching_matches(self):
         epl = Competition.objects.create(code="EPL", name="Premier League", country="England")
@@ -758,9 +760,96 @@ class FinalStageSixTests(TestCase):
         UserRoundScore.objects.create(user=self.user, round=self.round, breakdown=[{"match": first.id, "effective_match": first.id, "typy": 1, "standard_correct": True}])
         other = Round.objects.create(name="Older completed round")
         Match.objects.create(round=other, league="League", home_team="C", away_team="D", kickoff=timezone.now()-timedelta(days=3), home_goals=1, away_goals=0)
-        data = profile_data(self.user, round_id=self.round.id)
-        self.assertEqual(data["history"].paginator.count, 1)
-        self.assertEqual(data["history"].object_list[0]["round"], self.round)
+        history, _ = public_history(self.user, round_id=self.round.id)
+        self.assertEqual(history.paginator.count, 1)
+        self.assertEqual(history.object_list[0]["round"], self.round)
+
+    def test_profile_round_history_preview_is_limited_to_five_recent_rounds(self):
+        rounds = []
+        for number in range(6):
+            round_ = Round.objects.create(
+                name=f"Historia {number}",
+                ranking_date=timezone.localdate() - timedelta(days=number),
+                match_count=1,
+            )
+            Match.objects.create(
+                round=round_, league="League", home_team=f"H{number}", away_team=f"A{number}",
+                kickoff=timezone.now() - timedelta(days=number + 1), home_goals=1, away_goals=0,
+            )
+            UserRoundScore.objects.create(user=self.user, round=round_, typy_points=number + 1)
+            rounds.append(round_)
+
+        response = self.client.get(reverse("player_profile", args=[self.user.username]))
+
+        preview = response.context["round_history_preview"]
+        self.assertEqual([item["round"] for item in preview], rounds[:5])
+        self.assertContains(response, "ZOBACZ CAŁĄ HISTORIĘ")
+        self.assertNotContains(response, "Historia 5")
+
+    def test_round_history_uses_classified_players_for_top_percent_and_selects_round(self):
+        selected = Round.objects.create(name="Wybrana kolejka", ranking_date=timezone.localdate(), match_count=1)
+        match = Match.objects.create(
+            round=selected, league="League", home_team="Marker Home", away_team="Marker Away",
+            kickoff=timezone.now() - timedelta(days=2), home_goals=2, away_goals=0,
+        )
+        UserRoundScore.objects.create(user=self.user, round=selected, typy_points=6)
+        for index, points in enumerate((7, 5), start=1):
+            rival = get_user_model().objects.create_user(username=f"classified{index}")
+            UserRoundScore.objects.create(user=rival, round=selected, typy_points=points)
+        Prediction.objects.create(user=self.user, match=match, predicted_result="1")
+        TrophyFinish.objects.create(user=self.user, scope="ROUND", period_key=str(selected.id), rank=2)
+
+        profile_response = self.client.get(reverse("player_profile", args=[self.user.username]))
+        history_url = reverse("player_round_history", args=[self.user.username])
+        self.assertContains(profile_response, "6 PKT")
+        self.assertContains(profile_response, "🥈")
+        self.assertNotContains(profile_response, "TOP 67%")
+        self.assertContains(profile_response, f'{history_url}?round={selected.id}')
+        self.assertNotContains(profile_response, "Marker Home")
+
+        history_response = self.client.get(history_url, {"round": selected.id})
+        self.assertEqual(history_response.context["selected_summary"]["round"], selected)
+        self.assertContains(history_response, "Wybrana kolejka")
+        self.assertContains(history_response, "Marker Home")
+        self.assertContains(history_response, "TOP 67%")
+
+    def test_round_history_summary_maps_each_finalized_finish_to_one_status(self):
+        expected = {1: "🥇", 2: "🥈", 3: "🥉", 4: "TOP 100%"}
+        for position in range(1, 5):
+            round_ = Round.objects.create(
+                name=f"Podium {position}",
+                ranking_date=timezone.localdate() - timedelta(days=position),
+                match_count=1,
+            )
+            Match.objects.create(
+                round=round_, league="League", home_team=f"P{position}", away_team="Away",
+                kickoff=timezone.now() - timedelta(days=position), home_goals=1, away_goals=0,
+            )
+            UserRoundScore.objects.create(user=self.user, round=round_, typy_points=1)
+            for rival_number in range(position - 1):
+                rival = get_user_model().objects.create_user(username=f"podium-{position}-{rival_number}")
+                UserRoundScore.objects.create(user=rival, round=round_, typy_points=2)
+            if position <= 3:
+                TrophyFinish.objects.create(
+                    user=self.user, scope="ROUND", period_key=str(round_.id), rank=position,
+                )
+
+        summaries = {item["round"].name: item for item in round_history_summaries(self.user)}
+
+        for position, status in expected.items():
+            item = summaries[f"Podium {position}"]
+            self.assertEqual(item["result_status"], status)
+            self.assertEqual(item["medal"], status if position <= 3 else "")
+            if position <= 3:
+                self.assertNotIn("TOP", item["result_status"])
+
+    def test_round_history_empty_state(self):
+        empty_player = get_user_model().objects.create_user(username="empty-history")
+
+        response = self.client.get(reverse("player_round_history", args=[empty_player.username]))
+
+        self.assertContains(response, "Nie masz jeszcze kolejek do wyświetlenia.")
+        self.assertIsNone(response.context["selected_summary"])
 
     def test_current_round_winner_resolves_its_origin_draft_loser(self):
         winner = Match.objects.create(round=self.round, league="L", home_team="Winner", away_team="Home", kickoff=timezone.now()+timedelta(days=2))

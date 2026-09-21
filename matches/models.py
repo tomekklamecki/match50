@@ -33,6 +33,7 @@ class Match50Season(models.Model):
 
 
 class Round(models.Model):
+    frozen_match_order = models.JSONField(null=True, blank=True, editable=False)
     name = models.CharField(max_length=100)
     is_active = models.BooleanField(default=False)
     match_count = models.PositiveIntegerField(default=30)
@@ -56,8 +57,16 @@ class Round(models.Model):
             raise ValidationError("Round ranking date must belong to its MATCH50 Season.")
 
     def save(self, *args, **kwargs):
+        if self.pk:
+            persisted = Round.objects.get(pk=self.pk)
+            if persisted.frozen_match_order is not None:
+                self.frozen_match_order = persisted.frozen_match_order
         self.full_clean()
         super().save(*args, **kwargs)
+
+        if self.is_active:
+            from matches.services.match_order import freeze_match_order
+            freeze_match_order(self)
 
     def __str__(self):
         return self.name
@@ -314,6 +323,9 @@ class Match(models.Model):
         self.full_clean()
         super().save(*args, **kwargs)
         current = (self.home_goals, self.away_goals, self.status, self.result)
+        if self.round_id and self.round.is_active:
+            from matches.services.match_order import freeze_match_order
+            freeze_match_order(self.round)
         if previous != current:
             def recalculate_affected_scores(match_id=self.pk, round_id=self.round_id):
                 from matches.services.scoring import recalculate_round_scores

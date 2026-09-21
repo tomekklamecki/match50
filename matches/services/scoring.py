@@ -11,6 +11,17 @@ def actual_outcome(match):
     return "1" if match.home_goals > match.away_goals else "2" if match.home_goals < match.away_goals else "X"
 
 
+def typ_choices(prediction, chip=None):
+    return chip.outcomes if chip and chip.chip == "DOUBLE_PICK" else ([prediction.predicted_result] if prediction else [])
+
+
+def typ_success(match, prediction, chip=None):
+    """Authoritative normal TYP success; None means not evaluable."""
+    outcome = actual_outcome(match)
+    choices = typ_choices(prediction, chip)
+    return outcome in choices if outcome is not None and choices else None
+
+
 def modifier_bonus(modifier, match, correct):
     if not correct or not modifier:
         return 0
@@ -26,6 +37,10 @@ def modifier_bonus(modifier, match, correct):
 
 
 def recalculate_user_round_score(user, round_):
+    from matches.services.match_order import freeze_match_order
+    from matches.services.lifecycle import is_completed_round
+    if round_.is_active or is_completed_round(round_):
+        freeze_match_order(round_)
     matches = list(round_.matches.filter(status__in=[Match.Status.FINISHED, Match.Status.CANCELLED]).select_related("competition_season__competition", "competition_season__champion_team"))
     chips = {chip.match_id: chip for chip in ChipAssignment.objects.filter(user=user, round=round_).select_related("replacement_match")}
     predictions = {item.match_id: item for item in Prediction.objects.filter(user=user)}
@@ -36,7 +51,7 @@ def recalculate_user_round_score(user, round_):
         # persisted Draft loser; the original remains only as an audit trail.
         match = resolve_effective_match(original, chip)
         prediction = predictions.get(match.id)
-        choices = chip.outcomes if chip and chip.chip == "DOUBLE_PICK" else ([prediction.predicted_result] if prediction else [])
+        choices = typ_choices(prediction, chip)
         item = {
             "match": match.id,
             "original_match": original.id,
@@ -58,7 +73,7 @@ def recalculate_user_round_score(user, round_):
         outcome=actual_outcome(match)
         if not outcome:
             continue
-        correct=outcome in choices; t=int(correct); g=int(bool(prediction and prediction.total_goals==match.home_goals+match.away_goals))
+        correct=bool(typ_success(match, prediction, chip)); t=int(correct); g=int(bool(prediction and prediction.total_goals==match.home_goals+match.away_goals))
         modifier = modifier_bonus(round_.active_global_modifier,match,correct)
         banker = (2 if correct else -1) if chip and chip.chip == "BANKER" else 0
         goooooooal = (match.home_goals if chip.goal_team==match.home_team else match.away_goals if chip.goal_team==match.away_team else 0)//2 if chip and chip.chip == "GOOOOOOOOAL" else 0

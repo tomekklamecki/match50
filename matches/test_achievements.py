@@ -49,7 +49,7 @@ class AchievementEngineTests(TestCase):
         _tiers(self.user,"GOLE","GOLE",6,GOAL_TIERS,{})
         self.assertEqual(AchievementNotification.objects.count(), count)
         state = UserAchievement.objects.get(achievement__code="TYPY",user=self.user)
-        self.assertEqual((state.progress,state.current_tier,state.stars),(18,"SILVER",0))
+        self.assertEqual((state.progress,state.current_tier,state.stars),(18,"GOLD",0))
         with patch("matches.services.achievements.evaluate_user", side_effect=AssertionError):
             self.assertEqual(profile_data(self.user)["paths"]["typy"]["progress"],18)
 
@@ -89,6 +89,24 @@ class AchievementEngineTests(TestCase):
         evaluate_trophies(round_)
         self.assertFalse(TrophyFinish.objects.exists())
         self.assertFalse(UserAchievement.objects.filter(achievement__code="ROUND_CHAMPION").exists())
+
+    def test_round_medals_follow_corrected_ranking_and_remove_old_podium(self):
+        round_, _ = self.finished_round(1)
+        users = [get_user_model().objects.create_user(username=f"medal-{i}") for i in range(4)]
+        scores = [UserRoundScore.objects.create(user=user, round=round_, typy_points=points)
+                  for user, points in zip(users, [28, 20, 19, 16])]
+        for user in users:
+            TrophyFinish.objects.create(user=user, scope="ROUND", period_key=str(round_.pk), rank=1)
+        other = TrophyFinish.objects.create(user=users[3], scope="MONTH", period_key="2026-01", rank=1)
+        evaluate_trophies(round_)
+        evaluate_trophies(round_)
+        medals = lambda: dict(TrophyFinish.objects.filter(scope="ROUND", period_key=str(round_.pk)).values_list("user_id", "rank"))
+        self.assertEqual(medals(), {users[0].pk: 1, users[1].pk: 2, users[2].pk: 3})
+        scores[3].typy_points = 30
+        scores[3].save()
+        evaluate_trophies(round_)
+        self.assertEqual(medals(), {users[3].pk: 1, users[0].pk: 2, users[1].pk: 3})
+        self.assertTrue(TrophyFinish.objects.filter(pk=other.pk).exists())
 
     @patch("matches.services.achievements.typy_streaks",return_value={"current_streak":10,"max_streak":10})
     def test_perfect_ten_integrates_existing_code_once(self, streaks):
