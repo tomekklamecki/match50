@@ -73,10 +73,11 @@ def calculate_player_statistics(user):
         choices = (
             assignment.outcomes
             if assignment and assignment.chip == ChipAssignment.Chip.DOUBLE_PICK
-            else [prediction.predicted_result]
+            else [prediction.predicted_result] if prediction.predicted_result else []
         )
-        typy_submitted += 1
-        typy_correct += int(outcome in choices)
+        if choices:
+            typy_submitted += 1
+            typy_correct += int(outcome in choices)
         if prediction.total_goals is not None:
             gole_submitted += 1
             gole_correct += int(prediction.total_goals == match.home_goals + match.away_goals)

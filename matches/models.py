@@ -33,6 +33,8 @@ class Match50Season(models.Model):
 
 
 class Round(models.Model):
+    team_history_requested_at = models.DateTimeField(null=True, blank=True, editable=False)
+    team_history_synced_at = models.DateTimeField(null=True, blank=True, editable=False)
     frozen_match_order = models.JSONField(null=True, blank=True, editable=False)
     name = models.CharField(max_length=100)
     is_active = models.BooleanField(default=False)
@@ -57,8 +59,10 @@ class Round(models.Model):
             raise ValidationError("Round ranking date must belong to its MATCH50 Season.")
 
     def save(self, *args, **kwargs):
+        was_active = False
         if self.pk:
             persisted = Round.objects.get(pk=self.pk)
+            was_active = persisted.is_active
             if persisted.frozen_match_order is not None:
                 self.frozen_match_order = persisted.frozen_match_order
         self.full_clean()
@@ -67,6 +71,9 @@ class Round(models.Model):
         if self.is_active:
             from matches.services.match_order import freeze_match_order
             freeze_match_order(self)
+            if not was_active:
+                from matches.services.team_history import request_round_history
+                request_round_history(self)
 
     def __str__(self):
         return self.name
@@ -150,8 +157,10 @@ class Draft(models.Model):
                 self.next_round = Round.objects.create(
                     name=self.next_round_name, is_active=False, match_count=30, active_global_modifier=self.winning_modifier
                 )
-                self.is_active = False
-                self.save(update_fields=["next_round", "is_active"])
+                # A completed Draft remains the active/readable Draft until an
+                # administrator explicitly retires it. Round activation is a
+                # separate manual lifecycle action.
+                self.save(update_fields=["next_round"])
             elif self.next_round.active_global_modifier_id != self.winning_modifier_id:
                 self.next_round.active_global_modifier = self.winning_modifier
                 self.next_round.save(update_fields=["active_global_modifier"])
@@ -186,6 +195,7 @@ class Draft(models.Model):
 
 
 class Team(models.Model):
+    api_football_id = models.PositiveIntegerField(null=True, blank=True, unique=True)
     class ShirtPattern(models.TextChoices):
         SOLID = "SOLID", "Solid"
         VERTICAL_STRIPES = "VERTICAL_STRIPES", "Vertical stripes"
@@ -203,6 +213,9 @@ class Team(models.Model):
 
 
 class Competition(models.Model):
+    api_football_id = models.PositiveIntegerField(null=True, blank=True, unique=True)
+    competition_type = models.CharField(max_length=30, blank=True)
+    country_code = models.CharField(max_length=10, blank=True)
     code = models.CharField(max_length=12, unique=True)
     name = models.CharField(max_length=100)
     country = models.CharField(max_length=100)
@@ -211,11 +224,12 @@ class Competition(models.Model):
 
 
 class CompetitionSeason(models.Model):
+    provider_season = models.PositiveSmallIntegerField(null=True, blank=True)
     competition = models.ForeignKey(Competition, on_delete=models.CASCADE, related_name="seasons")
     season_label = models.CharField(max_length=20)
     champion_team = models.ForeignKey(Team, null=True, blank=True, on_delete=models.SET_NULL, related_name="champion_seasons")
     active = models.BooleanField(default=True)
-    class Meta: constraints=[models.UniqueConstraint(fields=["competition","season_label"],name="unique_competition_season")]
+    class Meta: constraints=[models.UniqueConstraint(fields=["competition","season_label"],name="unique_competition_season"), models.UniqueConstraint(fields=["competition", "provider_season"], name="unique_provider_season")]
     def __str__(self): return f"{self.competition} {self.season_label}"
 
 
@@ -228,6 +242,25 @@ class GlobalModifier(models.Model):
 
 
 class Match(models.Model):
+    api_football_id = models.PositiveIntegerField(null=True, blank=True, unique=True)
+    provider_status = models.CharField(max_length=12, blank=True)
+    provider_score = models.JSONField(default=dict, blank=True)
+    provider_synced_at = models.DateTimeField(null=True, blank=True)
+    automatic_kw_year = models.PositiveSmallIntegerField(null=True, blank=True, editable=False)
+    automatic_kw_week = models.PositiveSmallIntegerField(null=True, blank=True, editable=False)
+    kw_override_year = models.PositiveSmallIntegerField(null=True, blank=True)
+    kw_override_week = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    @property
+    def automatic_kw(self):
+        from matches.services.calendar_week import CalendarWeek
+        return CalendarWeek.at(self.kickoff)
+
+    @property
+    def effective_kw(self):
+        from matches.services.calendar_week import CalendarWeek
+        return CalendarWeek(self.kw_override_year, self.kw_override_week) if self.kw_override_year is not None else self.automatic_kw
+
     class Status(models.TextChoices):
         UPCOMING = "UPCOMING", "Upcoming"
         LIVE = "LIVE", "Live"
@@ -290,12 +323,22 @@ class Match(models.Model):
             models.CheckConstraint(
                 condition=(Q(home_goals__isnull=True, away_goals__isnull=True) | Q(home_goals__isnull=False, away_goals__isnull=False)),
                 name="match_score_is_complete_or_empty",
-            )
+            ),
+            models.CheckConstraint(condition=(Q(kw_override_year__isnull=True, kw_override_week__isnull=True) | Q(kw_override_year__isnull=False, kw_override_week__isnull=False, kw_override_week__gte=1, kw_override_week__lte=53)), name="kw_override_complete"),
         ]
+        indexes = [models.Index(fields=["automatic_kw_year", "automatic_kw_week"], name="match_auto_kw_idx")]
 
     def clean(self):
         if (self.home_goals is None) != (self.away_goals is None):
             raise ValidationError("A final result requires both home and away goals.")
+        if (self.kw_override_year is None) != (self.kw_override_week is None):
+            raise ValidationError("KW override requires both ISO year and week.")
+        if self.kw_override_year is not None:
+            from matches.services.calendar_week import CalendarWeek
+            try:
+                CalendarWeek(self.kw_override_year, self.kw_override_week)
+            except ValueError as error:
+                raise ValidationError({"kw_override_week": str(error)})
 
     def save(self, *args, **kwargs):
         previous = None
@@ -319,7 +362,8 @@ class Match(models.Model):
                 self.finished_at = timezone.now()
 
         if kwargs.get("update_fields") is not None:
-            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"status", "result"}
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"status", "result", "automatic_kw_year", "automatic_kw_week"}
+        self.automatic_kw_year, self.automatic_kw_week = self.automatic_kw.year, self.automatic_kw.week
         self.full_clean()
         super().save(*args, **kwargs)
         current = (self.home_goals, self.away_goals, self.status, self.result)
@@ -365,6 +409,9 @@ class DraftPair(models.Model):
             models.UniqueConstraint(fields=["draft", "match_a"], name="draft_pair_unique_match_a"),
             models.UniqueConstraint(fields=["draft", "match_b"], name="draft_pair_unique_match_b"),
         ]
+
+    def __str__(self):
+        return f"{self.match_a} ↔ {self.match_b}"
 
     @property
     def opens_at(self):
@@ -430,6 +477,10 @@ class DraftPair(models.Model):
                 DraftPairCandidate.objects.filter(pair=self).exclude(match_id__in=[self.match_a_id, self.match_b_id]).delete()
                 DraftPairCandidate.objects.update_or_create(draft=self.draft, match_id=self.match_a_id, defaults={"pair": self, "side": "A"})
                 DraftPairCandidate.objects.update_or_create(draft=self.draft, match_id=self.match_b_id, defaults={"pair": self, "side": "B"})
+            if self.winner_id and self.resolved_at:
+                alternative_id = self.match_b_id if self.winner_id == self.match_a_id else self.match_a_id
+                MatchAlternative.objects.update_or_create(match_id=self.winner_id,
+                    defaults={"alternative_id": alternative_id, "source_pair": self})
 
     def vote_counts(self):
         return {
@@ -464,6 +515,56 @@ class DraftPair(models.Model):
             self.resolution_method = pair.resolution_method
             self.resolved_at = pair.resolved_at
             return self
+
+
+class MatchAlternative(models.Model):
+    """The same SWAP relationship for a Draft winner or an admin bootstrap."""
+    match = models.OneToOneField(Match, on_delete=models.CASCADE, related_name="swap_alternative")
+    alternative = models.ForeignKey(Match, on_delete=models.PROTECT, related_name="alternative_for")
+    source_pair = models.ForeignKey(DraftPair, null=True, blank=True, on_delete=models.CASCADE, related_name="alternatives")
+
+    class Meta:
+        constraints = [models.CheckConstraint(condition=~Q(match=models.F("alternative")), name="distinct_swap_alternative")]
+
+    def clean(self):
+        if self.match_id == self.alternative_id:
+            raise ValidationError("A match cannot be its own alternative.")
+        if not self.match_id or not self.alternative_id:
+            return
+        if self.alternative.round_id:
+            raise ValidationError("An alternative must remain outside playable Rounds.")
+        if self.source_pair_id:
+            pair = self.source_pair
+            loser = pair.match_b_id if pair.winner_id == pair.match_a_id else pair.match_a_id
+            if not pair.resolved_at or pair.winner_id != self.match_id or loser != self.alternative_id:
+                raise ValidationError("Alternative must match the resolved Draft pair.")
+        previous = type(self).objects.filter(pk=self.pk).first() if self.pk else None
+        changed = bool(previous and (previous.alternative_id, previous.match_id) != (self.alternative_id, self.match_id))
+        if previous and (previous.alternative_id, previous.match_id) != (self.alternative_id, self.match_id):
+            if ChipAssignment.objects.filter(match_id=previous.match_id, chip="SWAP").exists() or not previous.match.predictions_editable:
+                raise ValidationError("An alternative already used or locked cannot be changed.")
+        if not self.source_pair_id and (not previous or changed):
+            if previous and not previous.match.round.is_active:
+                raise ValidationError("Historical alternatives cannot be changed.")
+            from matches.services.alternative_eligibility import AlternativeEligibilityError, validate_manual_alternative
+            try:
+                validate_manual_alternative(self, previous)
+            except AlternativeEligibilityError as error:
+                raise ValidationError(str(error)) from None
+        if self.match.round_id and type(self).objects.filter(match__round_id=self.match.round_id, alternative_id=self.alternative_id).exclude(pk=self.pk).exists():
+            raise ValidationError("An alternative can serve only one slot in a Round.")
+
+    def save(self, *args, **kwargs):
+        with transaction.atomic():
+            # Serialize manual changes on the owning Round so two admin
+            # requests cannot consume the same candidate concurrently.
+            if not self.source_pair_id and self.match_id and self.match.round_id:
+                Round.objects.select_for_update().get(pk=self.match.round_id)
+            self.full_clean()
+            super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.match} → {self.alternative}"
 
 
 class DraftPairCandidate(models.Model):
@@ -535,6 +636,8 @@ class Prediction(models.Model):
 
     predicted_result = models.CharField(
         max_length=1,
+        blank=True,
+        default="",
         choices=[
             ("1", "1"),
             ("X", "X"),
@@ -611,12 +714,12 @@ class ChipAssignment(models.Model):
         if self.chip == self.Chip.GOOOOOOOAL and self.goal_team not in {self.match.home_team, self.match.away_team}:
             raise ValidationError("Choose one team from this match for Goooooooal.")
         if self.chip == self.Chip.SWAP:
-            pair = DraftPair.objects.filter(winner=self.match, resolved_at__isnull=False).first()
-            if not pair:
-                raise ValidationError("Swap requires a persisted Draft loser for this match.")
-            loser_id = pair.match_b_id if pair.match_a_id == self.match_id else pair.match_a_id
-            if self.replacement_match_id != loser_id or timezone.now() >= self.replacement_match.kickoff:
-                raise ValidationError("Swap replacement must be the unstarted loser of this Draft pair.")
+            from matches.services.effective_match import draft_loser_for_winner
+            alternative = draft_loser_for_winner(self.match)
+            if not alternative or self.replacement_match_id != alternative.pk:
+                raise ValidationError("SWAP requires this match's persisted alternative.")
+            if alternative.round_id or not alternative.predictions_editable or alternative.provider_status not in {"", "NS", "TBD"}:
+                raise ValidationError("SWAP alternative must be an available, unstarted match outside a Round.")
 
     def save(self, *args, **kwargs):
         self.full_clean()

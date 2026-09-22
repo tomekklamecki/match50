@@ -159,9 +159,17 @@ def profile_data(user, page=1, competition=None, result=None, round_id=None):
         ("streak_again", "STREAK_AGAIN", "SERIA — DO IT AGAIN", REPEAT_TIERS),
     ):
         discovered = not key.endswith("_again") or bool(code in states and states[code].context_data.get("discovered"))
-        paths[key] = {**progress(code, thresholds), "label": label, "discovered": True} if discovered else {"label": "???????", "discovered": False}
-    mastery = [{"code":code, "name":name, "data":progress(f"MASTERY_{code}", MASTERY_TIERS)}
-               for code, name in league_codes]
+        if discovered:
+            path = {**progress(code, thresholds), "label": label, "discovered": True}
+            path["rank_label"] = path["tier"] if path["tier"] != "—" else "BRAK RANGI"
+            paths[key] = path
+        else:
+            paths[key] = {"label": "???????", "discovered": False}
+    mastery = []
+    for code, name in league_codes:
+        data = progress(f"MASTERY_{code}", MASTERY_TIERS)
+        data["rank_label"] = data["tier"] if data["tier"] != "—" else "BRAK RANGI"
+        mastery.append({"code": code, "name": name, "data": data})
     streak_state = states.get("STREAK")
     streaks = streak_state.context_data if streak_state else {"current_streak":0, "max_streak":0}
     return {"statistics":calculate_player_statistics(user), "streaks":streaks, "performance":current_performance(user), "round_history_preview":round_history_summaries(user)[:5], "achievements":[item for item in unlocks if item.unlocked], "trophies":trophy_rows, "paths":paths, "mastery":mastery}

@@ -1,0 +1,5 @@
+.draft-pair-picker__status { color: var(--body-quiet-color); display: inline-block; margin-left: 12px; }
+.form-row.field-kw_filter, .form-row.field-competition_filter, .form-row.field-fixture_search { background: var(--darkened-bg); }
+.form-row.field-match_a, .form-row.field-match_b { border-left: 4px solid var(--accent); padding-left: 14px; }
+.form-row.field-match_b { border-left-color: var(--link-fg); }
+#id_match_a, #id_match_b { min-height: 18rem; width: min(100%, 900px); }

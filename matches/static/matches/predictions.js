@@ -12,8 +12,19 @@
   const toolbar = document.getElementById('prediction-toolbar');
   const goalsDialog = document.getElementById('goals-dialog');
   const partialDialog = document.getElementById('partial-dialog');
+  const saveButton = document.getElementById('save-predictions');
   let view = 'list', index = 0, busy = false, partialAccepted = false;
   let goalsInput = null;
+  let flagFontRequested = false, flagFontReady = false;
+  function loadFlagFont() {
+    if (flagFontRequested) return;
+    flagFontRequested = true;
+    if (!document.fonts) return;
+    document.fonts.load('34px "Match50 Country Flags"', '\u{1F1E7}\u{1F1EA}').then(fonts => {
+      flagFontReady = fonts.length > 0;
+      if (flagFontReady) refresh();
+    }).catch(() => { /* Keep shirts if the local font cannot be loaded. */ });
+  }
   const pendingChips = new Map();
   const selectedLeagues = new Set();
   const slot = card => state.slots[card.dataset.matchId];
@@ -29,7 +40,8 @@
   const incomplete = (card, edit = null) => {
     const picks = edit ? edit.outcomes : selected(card), goals = card.querySelector('.goal-input')?.value ?? '';
     const chip = edit ? edit.chip : pendingChips.get(card)?.chip || chipValue(card);
-    if (!picks.length && (goals !== '' || chip)) return 'Wybierz typ 1 / X / 2 przed zapisaniem meczu.';
+    const changesEffectiveMatch = edit && ((chipValue(card) === 'SWAP') !== (chip === 'SWAP'));
+    if (!picks.length && slot(card).chips[chip]?.requiresPick && !changesEffectiveMatch) return 'Wybierz typ 1 / X / 2 przed zapisaniem meczu.';
     if (slot(card).chips[chip]?.limit === 2 && picks.length !== 2) return 'DOUBLE PICK — wybierz dokładnie dwa wyniki.';
     return '';
   };
@@ -90,6 +102,45 @@
     card.querySelector('.team-separator').textContent = '\u00a0—\u00a0';
     applyShirt(shirts[0], display.homeShirt, display.home);
     applyShirt(shirts[1], display.awayShirt, display.away);
+    card.querySelectorAll('.national-team-flag').forEach(element => element.remove());
+    [[shirts[0], display.homeFlag, display.home], [shirts[1], display.awayFlag, display.away]].forEach(([shirt, flag, name]) => {
+      if (!shirt) return;
+      if (flag?.text) loadFlagFont();
+      const showFlag = !!flag?.asset || (!!flag?.text && flagFontReady);
+      shirt.style.display = showFlag ? 'none' : '';
+      if (!showFlag) return;
+      const icon = document.createElement(flag.asset ? 'img' : 'span');
+      icon.className = `national-team-flag${flag.asset ? ' flag-asset' : ''}`;
+      icon.setAttribute('role', 'img');
+      icon.setAttribute('aria-label', name);
+      if (flag.asset) { icon.src = flag.asset; icon.alt = ''; }
+      else icon.textContent = flag.text;
+      shirt.before(icon);
+    });
+    card.querySelectorAll('.team-form').forEach(element => element.remove());
+    if (view === 'card') {
+      [[home, display.homeForm], [away, display.awayForm]].forEach(([name, results]) => {
+        if (!results?.length) return;
+        const form = document.createElement('span');
+        form.className = 'team-form';
+        form.setAttribute('aria-label', `${name.textContent}: last ${results.length}, oldest to newest`);
+        results.forEach(item => {
+          const dot = document.createElement('span');
+          dot.className = `team-form-dot result-${item.result}`;
+          dot.textContent = item.result;
+          dot.tabIndex = 0;
+          dot.title = item.tooltip;
+          dot.setAttribute('aria-label', `${item.result}: ${item.tooltip}`);
+          const tooltip = document.createElement('span');
+          tooltip.className = 'team-form-tooltip';
+          tooltip.textContent = item.tooltip;
+          tooltip.setAttribute('aria-hidden', 'true');
+          dot.append(tooltip);
+          form.append(dot);
+        });
+        name.closest('.team-side').append(form);
+      });
+    }
   }
 
   function applyLeagueFilter() {
@@ -99,12 +150,38 @@
     });
   }
 
-  function progress() {
+  function visibleProgressState() {
+    const values = Object.entries(state.slots).map(([id, saved]) => {
+      const card = cards.find(item => item.dataset.matchId === id);
+      if (!card) return saved;
+      const picks = selected(card);
+      return {
+        ...saved,
+        chip: chipValue(card),
+        predicted: picks.length === rule(card).limit,
+        goals: card.querySelector('.goal-input')?.value ?? '',
+      };
+    });
+    const goalsSelected = values.filter(value => value.goals !== '').length;
+    const remainingGoalSlots = values.filter(value => value.goleActionable && value.goals === '').length;
+    return {
+      values,
+      predicted: values.filter(value => value.predicted).length,
+      goalsSelected,
+      typyComplete: values.every(value => !value.typyActionable || value.predicted),
+      goleComplete: goalsSelected >= Math.min(10, goalsSelected + remainingGoalSlots),
+    };
+  }
+
+  function progress(current = visibleProgressState()) {
     if (!toolbar) return;
-    const values = Object.values(state.slots), predicted = values.filter(s => s.predicted).length;
-    document.getElementById('prediction-progress').textContent = state.future
+    const {values, predicted, typyComplete} = current;
+    const predictionProgress = document.getElementById('prediction-progress');
+    predictionProgress.textContent = state.future
       ? `Dostępne: ${values.length}/${state.total} · Wytypowane: ${predicted}/${values.length}`
       : `Wytypowane: ${predicted} / ${state.total}`;
+    predictionProgress.classList.toggle('complete', typyComplete);
+    predictionProgress.classList.toggle('incomplete', !typyComplete);
     const leagues = new Map();
     values.forEach(s => {
       const count = leagues.get(s.league) || [0, 0];
@@ -142,6 +219,14 @@
   }
 
   function refresh() {
+    const currentProgress = visibleProgressState();
+    const goalsCount = currentProgress.goalsSelected;
+    const goalsProgress = document.getElementById('goals-progress');
+    if (goalsProgress) {
+      goalsProgress.textContent = `GOLE ${goalsCount}/10`;
+      goalsProgress.classList.toggle('complete', currentProgress.goleComplete);
+      goalsProgress.classList.toggle('incomplete', !currentProgress.goleComplete);
+    }
     cards.forEach(card => {
       const current = chipValue(card), rules = rule(card), picks = selected(card);
       card.classList.toggle('chip-match', !!current);
@@ -150,7 +235,9 @@
         input.disabled = !rules.allowed.includes(input.value) || full;
         input.closest('.choice').classList.toggle('double-available', rules.limit === 2 && picks.length < 2 && !input.checked);
       });
-      card.querySelector('.pick-hint').textContent = rules.limit === 2 ? 'DOUBLE PICK — WYBIERZ 2' : 'Wybierz wynik meczu';
+      const pickHint = card.querySelector('.pick-hint');
+      pickHint.textContent = picks.length ? '' : (rules.limit === 2 ? 'DOUBLE PICK — WYBIERZ 2' : 'Wybierz wynik meczu');
+      pickHint.hidden = picks.length > 0;
       const display = rules.replacement ? slot(card).replacement : slot(card).original;
       if (display) {
         renderTeams(card, display);
@@ -161,7 +248,7 @@
       card.querySelectorAll('[data-chip]').forEach(button => {
         const name = button.dataset.chip, config = slot(card).chips[name];
         const active = name === current;
-        const used = allSlots.find(other => other !== card && (view === 'list' ? slot(other).chip : chipValue(other)) === name);
+        const used = allSlots.find(other => other !== card && chipValue(other) === name);
         let reason = active ? config.lockReason : config.reason;
         if (used) reason = `Użyty: ${used.querySelector('.teams').textContent}`;
         else if (current && !active) reason = 'Usuń aktualny chip';
@@ -176,8 +263,11 @@
       });
       const goals = card.querySelector('.goal-input'), trigger = card.querySelector('.goal-picker');
       if (trigger) {
-        trigger.textContent = view === 'list' ? (goals.value === '' ? '+ GOLE' : goals.value) : (goals.value === '' ? 'OBSTAW GOLE' : `GOLE: ${goals.value} · ZMIEŃ`);
-        trigger.setAttribute('aria-label', goals.value === '' ? 'Obstaw gole' : `GOLE: ${goals.value} — zmień`);
+        const goalLimitReached = goalsCount >= 10 && goals.value === '';
+        trigger.disabled = trigger.dataset.goalEditable !== 'true' || goalLimitReached;
+        trigger.title = goalLimitReached ? 'Limit GOLE 10/10 został wykorzystany.' : '';
+        trigger.textContent = view === 'list' ? (goals.value === '' ? '+ GOLE' : goals.value) : (goals.value === '' ? 'OBSTAW GOLE' : `GOLE: ${goals.value}`);
+        trigger.setAttribute('aria-label', goals.value === '' ? 'Obstaw gole' : `GOLE: ${goals.value}`);
       }
       card.querySelector('.teams').title = display?.teams || '';
       card.querySelector('.match-league').title = `${display?.league || ''} · ${display?.kickoff || ''}`;
@@ -195,9 +285,11 @@
       status.classList.toggle('incomplete', !!error);
       if (!error && card.classList.contains('needs-attention')) validate(card);
     });
-    // Summary always uses server-confirmed state, never the unsaved row inputs.
-    progress();
+    // Eligibility comes from the server; counts and completion reflect the
+    // values currently visible in the form, including unsaved removals.
+    progress(currentProgress);
     applyLeagueFilter();
+    if (saveButton) saveButton.disabled = !hasChanges();
   }
 
   function display() {
@@ -223,6 +315,8 @@
 
   async function save(card = null, chipEdit = null, navigation = false) {
     const scope = card || form;
+    const changesEffectiveMatch = chipEdit && ((chipValue(card) === 'SWAP') !== (chipEdit.chip === 'SWAP'));
+    if (changesEffectiveMatch) chipEdit = {...chipEdit, outcomes: []};
     const changedCards = chipEdit ? [card] : (card ? [card] : cards).filter(isDirty);
     if (!changedCards.length) return true;
     if (!changedCards.every(changed => validate(changed, chipEdit))) return false;
@@ -233,13 +327,25 @@
     const data = new FormData();
     data.set('csrfmiddlewaretoken', form.querySelector('[name=csrfmiddlewaretoken]').value);
     data.set('round_id', state.round); data.set('ui_save', '1');
+    changedCards.forEach(changed => {
+      if (!selected(changed).length && !chipEdit) {
+        const goals = changed.querySelector('.goal-input')?.value ?? '';
+        data.append(goals === '' ? 'clear_prediction' : 'clear_result', changed.dataset.matchId);
+      }
+      const persisted = JSON.parse(savedSnapshots.get(changed));
+      if ((persisted.chip === 'SWAP') !== (chipValue(changed) === 'SWAP')) {
+        data.append('swap_change', changed.dataset.matchId);
+      }
+    });
     if (card) data.set('card_match', card.dataset.matchId);
     scope.querySelectorAll('input[name]').forEach(input => {
       if (!input.disabled && (input.type !== 'checkbox' || input.checked)) data.append(input.name, input.value);
     });
     if (chipEdit) {
+      data.set('chip_action', '1');
       data.set(`chip_${card.dataset.matchId}`, chipEdit.chip);
       data.delete(`result_${card.dataset.matchId}`);
+      if (changesEffectiveMatch) data.delete(`goals_${card.dataset.matchId}`);
       chipEdit.outcomes.forEach(outcome => data.append(`result_${card.dataset.matchId}`, outcome));
       // Clicking a chip explicitly commits this match, including a partial Round.
       // The backend still enforces the GOLE maximum and all chip invariants.
@@ -270,12 +376,7 @@
         tell(result.error || 'Nie udało się zapisać. Twoje wybory pozostają na karcie.', true); return false;
       }
       Object.entries(result.slots).forEach(([id, saved]) => Object.assign(state.slots[id], saved));
-      if (chipEdit) cards.forEach(other => {
-        if (chipInput(other)) chipInput(other).value = slot(other).chip;
-        const baseline = JSON.parse(savedSnapshots.get(other));
-        baseline.chip = slot(other).chip;
-        savedSnapshots.set(other, JSON.stringify(baseline));
-      });
+      state.completion = result.completion;
       (card ? [card] : cards).forEach(saved => {
         const s = slot(saved);
         checks(saved).forEach(input => { input.checked = s.outcomes.includes(input.value); });
@@ -284,7 +385,7 @@
         if (goals) goals.value = s.goals;
         savedSnapshots.set(saved, snapshot(saved));
       });
-      tell('✓ Typy zapisane.'); return true;
+      tell(changesEffectiveMatch ? 'SWAP zastosowany. Wybierz typ — mecz jest niezapisany.' : '✓ Typy zapisane.'); return true;
     } catch (error) {
       tell('Nie udało się potwierdzić zapisu. Sprawdź połączenie i spróbuj ponownie. Twoje wybory pozostają na karcie.', true); return false;
     } finally {
@@ -307,6 +408,56 @@
     busy = true;
     try { return await save(card, edit); }
     finally { busy = false; }
+  }
+
+  function stageListChip(card, chip, outcomes) {
+    const input = chipInput(card);
+    const changesEffectiveMatch = (input.value === 'SWAP') !== (chip === 'SWAP');
+    input.value = chip;
+    if (changesEffectiveMatch) {
+      checks(card).forEach(choice => { choice.checked = false; });
+      const goals = card.querySelector('.goal-input');
+      if (goals && !goals.disabled) goals.value = '';
+    } else {
+      checks(card).forEach(choice => { choice.checked = outcomes.includes(choice.value); });
+    }
+    selected(card).slice(rule(card).limit).forEach(value => {
+      checks(card).find(choice => choice.value === value).checked = false;
+    });
+    refresh();
+  }
+
+  function discardChanges() {
+    pendingChips.clear();
+    cards.forEach(card => {
+      const saved = JSON.parse(savedSnapshots.get(card));
+      checks(card).forEach(input => { input.checked = saved.outcomes.includes(input.value); });
+      if (chipInput(card)) chipInput(card).value = saved.chip;
+      const goals = card.querySelector('.goal-input');
+      if (goals) goals.value = saved.goals;
+    });
+    refresh();
+  }
+
+  async function exitView(action) {
+    if (busy) return;
+    if (!hasChanges()) { action(); display(); return; }
+    busy = true;
+    try {
+      const dialog = document.getElementById('unsaved-dialog');
+      const choice = await new Promise(resolve => {
+        const finish = value => { dialog.close(); resolve(value); };
+        dialog.querySelectorAll('[data-exit]').forEach(button => {
+          button.onclick = () => finish(button.dataset.exit);
+        });
+        dialog.oncancel = event => { event.preventDefault(); finish('cancel'); };
+        dialog.showModal();
+      });
+      if (choice === 'cancel') return;
+      if (choice === 'save' && !await save(null, null, true)) return;
+      if (choice === 'discard') discardChanges();
+      action(); display();
+    } finally { busy = false; }
   }
 
   function cancelPendingChip(card) {
@@ -352,7 +503,8 @@
             checks(card).find(input => !input.checked && !input.disabled)?.focus();
             return;
           }
-          await commitPreparedChip(card, {chip, outcomes});
+          if (view === 'list') stageListChip(card, chip, outcomes);
+          else await commitPreparedChip(card, {chip, outcomes});
         });
         return clone;
       });
@@ -361,8 +513,14 @@
       openPicker(chipDialog, compact);
     });
     card.querySelectorAll('[data-chip]').forEach(button => {
-      button.addEventListener('click', () => {
-        const input = chipInput(card); input.value = input.value === button.dataset.chip ? '' : button.dataset.chip;
+      button.addEventListener('click', async () => {
+        const input = chipInput(card);
+        if (button.dataset.chip === 'SWAP') {
+          const chip = input.value === 'SWAP' ? '' : 'SWAP';
+          await commitPreparedChip(card, {chip, outcomes: []});
+          return;
+        }
+        input.value = input.value === button.dataset.chip ? '' : button.dataset.chip;
         // Removing DOUBLE PICK deterministically keeps the first selected outcome.
         selected(card).slice(rule(card).limit).forEach(value => { checks(card).find(c => c.value === value).checked = false; });
         refresh();
@@ -372,6 +530,7 @@
     if (input) {
       const trigger = document.createElement('button'); trigger.type = 'button'; trigger.className = 'goal-picker';
       trigger.disabled = input.disabled;
+      trigger.dataset.goalEditable = String(!input.disabled);
       trigger.setAttribute('aria-haspopup', 'dialog'); input.closest('label').hidden = true; input.closest('label').after(trigger);
       trigger.addEventListener('click', () => {
         goalsInput = input;
@@ -392,13 +551,22 @@
       const limit = rule(card).limit;
       if (limit === 1 && event.target.checked) checks(card).forEach(input => { if (input !== event.target) input.checked = false; });
       if (selected(card).length > limit) event.target.checked = false;
+      if (!selected(card).length) {
+        const chip = chipValue(card), config = slot(card).chips[chip];
+        if (chipInput(card) && (config?.requiresPick || config?.limit === 2)) {
+          chipInput(card).value = '';
+          pendingChips.delete(card);
+        }
+      }
     }
     const pending = pendingChips.get(card);
     if (pending && selected(card).length === rule(card).limit) {
       const outcomes = selected(card);
       refresh();
       pendingChips.delete(card);
-      if (!await commitPreparedChip(card, {chip: pending.chip, outcomes})) {
+      if (view === 'list') {
+        stageListChip(card, pending.chip, outcomes);
+      } else if (!await commitPreparedChip(card, {chip: pending.chip, outcomes})) {
         checks(card).forEach(input => { input.checked = pending.outcomes.includes(input.value); });
       }
     }
@@ -409,7 +577,7 @@
     const changeView = () => {
       view = button.dataset.view;
     };
-    leave(changeView, view === 'list', true);
+    exitView(changeView);
   }));
   previous.onclick = () => leave(() => { index = Math.max(0, index - 1); });
   next.onclick = () => leave(() => {
@@ -428,7 +596,7 @@
       const input = card.querySelector('.goal-input'); if (input && !input.disabled) input.value = '';
       if (chipInput(card)) chipInput(card).value = '';
     });
-    refresh(); tell('Wyczyszczono wybory w formularzu. Zapisz typy, aby zatwierdzić.');
+    refresh(); tell('Wyczyszczono wybory w formularzu. Zapisz, aby zatwierdzić.');
   });
   document.getElementById('save-anyway')?.addEventListener('click', event => {
     partialAccepted = true; event.target.closest('.modal').remove(); leave(() => {}, true);
@@ -436,12 +604,12 @@
   document.addEventListener('click', event => {
     const link = event.target.closest('a[href]');
     if (!link || !cards.length || event.defaultPrevented || link.getAttribute('href').startsWith('#')) return;
-    event.preventDefault(); leave(() => { window.location.assign(link.href); }, view === 'list');
+    event.preventDefault(); exitView(() => { window.location.assign(link.href); });
   });
   document.addEventListener('submit', event => {
     if (event.target === form || !cards.length) return;
     event.preventDefault(); const otherForm = event.target;
-    leave(() => HTMLFormElement.prototype.submit.call(otherForm), view === 'list');
+    exitView(() => HTMLFormElement.prototype.submit.call(otherForm));
   });
   window.addEventListener('beforeunload', event => {
     if (hasChanges() || busy) { event.preventDefault(); event.returnValue = ''; }

@@ -1,0 +1,5 @@
+{% extends "admin/change_list.html" %}
+{% block content %}
+<p>Aktualny KW: {{ current_kw }} · Przygotowujesz Draft dla: {{ suggested_kw }} (sugerowany tydzień)</p>
+{{ block.super }}
+{% endblock %}

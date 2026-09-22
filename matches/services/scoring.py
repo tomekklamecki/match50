@@ -12,7 +12,7 @@ def actual_outcome(match):
 
 
 def typ_choices(prediction, chip=None):
-    return chip.outcomes if chip and chip.chip == "DOUBLE_PICK" else ([prediction.predicted_result] if prediction else [])
+    return chip.outcomes if chip and chip.chip == "DOUBLE_PICK" else ([prediction.predicted_result] if prediction and prediction.predicted_result else [])
 
 
 def typ_success(match, prediction, chip=None):

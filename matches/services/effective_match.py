@@ -1,13 +1,11 @@
 """Authoritative resolution of a user's effective match in a Round slot."""
 
-from matches.models import ChipAssignment, DraftPair
+from matches.models import ChipAssignment, MatchAlternative
 
 
 def draft_loser_for_winner(original_match):
-    pair = DraftPair.objects.filter(winner=original_match, resolved_at__isnull=False).first()
-    if not pair:
-        return None
-    return pair.match_b if pair.match_a_id == original_match.id else pair.match_a
+    relationship = MatchAlternative.objects.filter(match=original_match).select_related("alternative").first()
+    return relationship.alternative if relationship else None
 
 
 def resolve_effective_match(original_match, assignment=None, replacement_match=None):

@@ -15,7 +15,7 @@ class FrozenStreakTests(TestCase):
 
     def fixture(self, round_, name, hours=0, result=True):
         match = Match.objects.create(round=round_, league="L", home_team=name, away_team="Visitors",
-            kickoff=timezone.now().replace(hour=12, minute=0, second=0, microsecond=0)+timedelta(hours=hours),
+            kickoff=timezone.now().replace(hour=12, minute=0, second=0, microsecond=0)+timedelta(days=1, hours=hours),
             home_goals=1 if result else None, away_goals=0 if result else None)
         Prediction.objects.create(user=self.user, match=match, predicted_result="1", total_goals=9)
         return match

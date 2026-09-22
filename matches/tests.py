@@ -248,6 +248,24 @@ class StageTwoDraftTests(TestCase):
         self.assertEqual(pair.winner_id, pair.match_b_id)
         self.assertEqual(pair.resolution_method, DraftPair.Resolution.VOTE)
 
+    def test_draft_pairs_use_shared_team_visuals_for_future_teams(self):
+        pair = self.pair()
+        england = Team.objects.create(name="Draft England", api_football_id=10)
+        germany = Team.objects.create(name="Draft Germany", api_football_id=25)
+        club = Team.objects.create(name="Draft Club", api_football_id=999999, shirt_primary="#112233")
+        pair.match_a.home_team_entity = england
+        pair.match_a.away_team_entity = club
+        pair.match_a.save(update_fields=["home_team_entity", "away_team_entity"])
+        pair.match_b.home_team_entity = germany
+        pair.match_b.save(update_fields=["home_team_entity"])
+
+        response = self.client.get(reverse("draft"))
+
+        self.assertContains(response, "football-flags/england.svg")
+        self.assertContains(response, "🇩🇪")
+        self.assertContains(response, 'data-team-shirt')
+        self.assertNotContains(response, ">GB-ENG<")
+
     def test_thirty_winners_populate_next_round_and_keep_losers(self):
         self.draft.starts_at = timezone.now() - timedelta(days=7)
         self.draft.save()
@@ -265,8 +283,29 @@ class StageTwoDraftTests(TestCase):
         self.assertEqual(next_round.matches.count(), 30)
         self.assertEqual(Match.objects.filter(round__isnull=True).count(), 30)
         self.draft.refresh_from_db()
-        self.assertFalse(self.draft.is_active)
+        self.assertTrue(self.draft.is_active)
         self.assertTrue(all(pair.winner_id in {pair.match_a_id, pair.match_b_id} for pair in DraftPair.objects.filter(draft=self.draft)))
+
+    def test_completed_draft_stays_active_and_day_six_is_read_only(self):
+        self.draft.starts_at = timezone.now() - timedelta(days=7)
+        self.draft.save()
+        self.create_complete_draft()
+        modifiers = [
+            GlobalModifier.objects.create(code=f"FINAL_{number}", name=f"Final {number}", description="Test")
+            for number in range(3)
+        ]
+        self.draft.modifier_options.set(modifiers)
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("draft"))
+
+        self.draft.refresh_from_db()
+        self.assertTrue(self.draft.is_active)
+        self.assertEqual(self.draft.next_round.matches.count(), 30)
+        self.assertContains(response, "DAY 6 / 6")
+        self.assertContains(response, "DRAFT ZAKOŃCZONY")
+        self.assertNotContains(response, 'id="draft-countdown"')
+        self.assertNotContains(response, ">WYBIERZ</button>")
 
 
 class StageThreeChipTests(TestCase):
@@ -341,7 +380,7 @@ class FinishedMatchCardTests(TestCase):
         self.assertTrue(response.context["has_editable_matches"])
         self.assertContains(response, 'id="prediction-toolbar"')
         self.assertContains(response, '<button type="button" class="button secondary" id="clear-predictions">')
-        self.assertContains(response, '<button class="button lime" type="submit">ZAPISZ TYPY</button>')
+        self.assertContains(response, '<button class="button lime" id="save-predictions" type="submit" disabled>ZAPISZ</button>')
         self.assertContains(response, 'input[type=checkbox]:not(:disabled)')
 
         self.finish(upcoming, 1, 0)
@@ -351,7 +390,7 @@ class FinishedMatchCardTests(TestCase):
         self.assertContains(response, 'id="prediction-toolbar"')
         self.assertNotContains(response, 'data-view="card"')
         self.assertNotContains(response, '<button type="button" class="button secondary" id="clear-predictions">')
-        self.assertNotContains(response, '<button class="button lime" type="submit">ZAPISZ TYPY</button>')
+        self.assertNotContains(response, 'id="save-predictions"')
 
         locked = self.match("Locked Home", "Locked Away")
         locked.kickoff = timezone.now() - timedelta(minutes=5)
@@ -881,13 +920,13 @@ class FinalStageSixTests(TestCase):
         self.assertEqual(Prediction.objects.get(user=self.user, match=match).total_goals, 3)
         self.assertTrue(ChipAssignment.objects.filter(user=self.user, round=self.round, match=match, chip="BANKER").exists())
 
-    def test_goal_without_any_standard_prediction_returns_typy_and_saves_nothing(self):
+    def test_goal_without_any_standard_prediction_is_saved(self):
         self.client.force_login(self.user)
         match = Match.objects.create(round=self.round, league="L", home_team="A", away_team="B", kickoff=timezone.now()+timedelta(days=2))
         response = self.client.post(reverse("typy"), {f"goals_{match.id}": "3", "confirm_less_than_ten": "1"})
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Wybierz typ 1/X/2")
-        self.assertFalse(Prediction.objects.filter(user=self.user, match=match).exists())
+        self.assertRedirects(response, reverse("typy"))
+        prediction = Prediction.objects.get(user=self.user, match=match)
+        self.assertEqual((prediction.predicted_result, prediction.total_goals), ("", 3))
 
     def test_ranking_username_links_to_the_shared_public_profile(self):
         previous = Round.objects.create(name="Completed ranking", match_count=1)

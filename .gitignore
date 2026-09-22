@@ -7,3 +7,6 @@ db.sqlite3
 # Local database / repair backups
 db_before_*.sqlite3
 *_before_repair.json
+
+# Local secrets
+.env

@@ -6,6 +6,36 @@ from matches.models import ChipAssignment, Prediction
 from .effective_match import prediction_match_ids_for_round, resolve_effective_match
 from .league_flags import flag_presentations
 from .team_visuals import match_presentation
+from .team_form import forms_for_matches
+
+
+def completion_state(slots):
+    values = list(slots.values())
+    goals_selected = sum(slot["goals"] != "" for slot in values)
+    remaining_goal_slots = sum(slot["goleActionable"] and slot["goals"] == "" for slot in values)
+    max_achievable_gole = min(10, goals_selected + remaining_goal_slots)
+    return {
+        "typyComplete": all(not slot["typyActionable"] or slot["predicted"] for slot in values),
+        "goleComplete": goals_selected >= max_achievable_gole,
+        "goalsSelected": goals_selected,
+        "maxAchievableGole": max_achievable_gole,
+    }
+
+
+def slot_actionability(match, assignment=None, *, authenticated=True):
+    prediction_editable = match.predictions_editable or bool(
+        assignment
+        and assignment.chip == ChipAssignment.Chip.CHANGE_MIND
+        and assignment.prediction_editable
+    )
+    effective = resolve_effective_match(match, assignment)
+    typy_actionable = bool(
+        authenticated
+        and prediction_editable
+        and effective.status not in {effective.Status.FINISHED, effective.Status.CANCELLED}
+    )
+    gole_actionable = bool(typy_actionable and match.predictions_editable)
+    return typy_actionable, gole_actionable
 
 
 def persisted_state(user, round_, matches):
@@ -18,19 +48,34 @@ def persisted_state(user, round_, matches):
         assignment = by_match.get(match.id)
         effective = resolve_effective_match(match, assignment)
         prediction = predictions.get(effective.id)
+        typy_actionable, gole_actionable = slot_actionability(match, assignment)
         slots[str(match.id)] = {
             "chip": assignment.chip if assignment else "",
-            "outcomes": assignment.outcomes if assignment and assignment.chip == ChipAssignment.Chip.DOUBLE_PICK else [prediction.predicted_result] if prediction else [],
+            "outcomes": assignment.outcomes if assignment and assignment.chip == ChipAssignment.Chip.DOUBLE_PICK else [prediction.predicted_result] if prediction and prediction.predicted_result else [],
             "goals": prediction.total_goals if prediction and prediction.total_goals is not None else "",
-            "predicted": bool(prediction), "league": effective.league,
+            "predicted": bool(prediction and prediction.predicted_result), "league": effective.league,
+            "typyActionable": typy_actionable,
+            "goleActionable": gole_actionable,
             **match_presentation(effective),
         }
     return slots
 
 
 def presentation_state(user, round_, matches):
+    assignments = {
+        assignment.match_id: assignment
+        for assignment in ChipAssignment.objects.filter(user=user, round=round_).select_related("replacement_match")
+    } if user.is_authenticated else {}
+    forms = forms_for_matches([fixture for match in matches for fixture in (match, match.swap_candidate)])
+    def presentation(match):
+        return {**match_presentation(match), **forms.get(match.pk, {})}
+
     slots = {}
     for match in matches:
+        assignment = assignments.get(match.id)
+        typy_actionable, gole_actionable = slot_actionability(
+            match, assignment, authenticated=user.is_authenticated
+        )
         chips = {}
         for chip, label in ChipAssignment.Chip.choices:
             reason = ""
@@ -57,9 +102,19 @@ def presentation_state(user, round_, matches):
         slots[str(match.id)] = {
             "chips": chips, "chip": match.saved_chip,
             "predicted": bool(match.saved_prediction),
+            "goals": match.saved_goals,
+            "typyActionable": typy_actionable,
+            "goleActionable": gole_actionable,
             "league": match.effective_match.league,
             "teams": f"{match.effective_match.home_team} – {match.effective_match.away_team}",
-            "original": {**match_presentation(match), "league": match.league, "kickoff": timezone.localtime(match.kickoff).strftime("%d.%m.%Y · %H:%M")},
-            "replacement": {**match_presentation(match.swap_candidate), "league": match.swap_candidate.league, "kickoff": timezone.localtime(match.swap_candidate.kickoff).strftime("%d.%m.%Y · %H:%M")} if match.swap_candidate else None,
+            "original": {**presentation(match), "league": match.league, "kickoff": timezone.localtime(match.kickoff).strftime("%d.%m.%Y · %H:%M")},
+            "replacement": {**presentation(match.swap_candidate), "league": match.swap_candidate.league, "kickoff": timezone.localtime(match.swap_candidate.kickoff).strftime("%d.%m.%Y · %H:%M")} if match.swap_candidate else None,
         }
-    return {"round": round_.id, "total": round_.match_count, "future": round_.is_future_preview, "slots": slots, "leagueFlags": flag_presentations()}
+    return {
+        "round": round_.id,
+        "total": round_.match_count,
+        "future": round_.is_future_preview,
+        "slots": slots,
+        "completion": completion_state(slots),
+        "leagueFlags": flag_presentations(),
+    }

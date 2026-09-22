@@ -101,6 +101,27 @@ class CoreProgressionTests(TestCase):
         self.assertContains(response, "GOLE — DO IT AGAIN")
         self.assertContains(response, "???????", count=1)
 
+    def test_profile_zero_and_core_progress_presentation(self):
+        response = self.client.get(reverse("player_profile", args=[self.user.username]))
+
+        self.assertContains(response, "0 / 0", count=2)
+        self.assertContains(response, "<b>0%</b>", count=2)
+        self.assertContains(response, "BRAK RANGI", count=12)
+        self.assertContains(response, '<div class="progress-meta progress-values"><span>0</span><span>10 do BRONZE</span></div>')
+        self.assertContains(response, '<div class="progress-meta progress-values"><span>0</span><span>1 do BRONZE</span></div>')
+        self.assertContains(response, '<div class="progress-meta progress-values"><span>0</span><span>4 do BRONZE</span></div>')
+        self.assertContains(response, '<div class="progress-meta"><span>0</span><span>10 do BRONZE</span></div>', count=9)
+        self.assertContains(response, 'class="profile-info-icon" tabindex="0"')
+        self.assertContains(response, 'class="profile-info-tooltip" role="tooltip" hidden')
+        self.assertContains(response, 'Suma poprawnych typów w danych rozgrywkach')
+        self.assertNotContains(response, "0 / 10")
+        self.assertContains(response, "???????", count=3)
+
+        _tiers(self.user, "TYPY", "TYPY", 10, TIERS, {})
+        response = self.client.get(reverse("player_profile", args=[self.user.username]))
+        self.assertContains(response, "BRONZE")
+        self.assertContains(response, '<div class="progress-meta progress-values"><span>10</span><span>14 do SILVER</span></div>')
+
     def test_backfill_preserves_ledger_and_non_core_and_corrects_old_tiers(self):
         _tiers(self.user, "TYPY", "TYPY", 30, TIERS, {})
         secret, _ = _unlock(self.user, "TEST_SECRET", "Secret", "HIDDEN", hidden=True)

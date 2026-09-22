@@ -14,6 +14,12 @@ from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+from .environment import environment_value
+
+API_FOOTBALL_KEY = environment_value("API_FOOTBALL_KEY", BASE_DIR / ".env")
+API_FOOTBALL_BASE_URL = "https://v3.football.api-sports.io"
+API_FOOTBALL_TIMEOUT = 30
+FOOTBALL_TIME_ZONE = "Europe/Warsaw"
 
 
 # Quick-start development settings - unsuitable for production

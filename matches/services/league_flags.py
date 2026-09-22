@@ -1,5 +1,6 @@
 """Football-country identity for prediction labels; stored league names stay intact."""
 from django.utils.html import format_html
+from django.templatetags.static import static
 
 
 LEAGUE_FLAGS = {
@@ -29,3 +30,65 @@ def flag_presentations():
 def league_label(league):
     flag = flag_markup(league)
     return format_html('{} {}', flag, league) if flag else format_html('{}', league)
+
+
+# Explicit senior identities from the provider-backed UEFA Nations League pool.
+# IDs identify teams, not their names or the country of a competition. Youth,
+# women's and club identities are not implicitly included. Extend only with
+# verified senior provider identities; unknown teams retain their shirt.
+SENIOR_NATIONAL_COUNTRIES = {
+    778: 'AL', 1110: 'AD', 1094: 'AM', 775: 'AT', 1096: 'AZ',
+    1100: 'BY', 1: 'BE', 1113: 'BA', 1103: 'BG', 3: 'HR',
+    1106: 'CY', 770: 'CZ', 21: 'DK', 10: 'GB-ENG', 1101: 'EE',
+    1105: 'MK', 1098: 'FO', 1099: 'FI', 2: 'FR', 1104: 'GE',
+    25: 'DE', 1093: 'GI', 1117: 'GR', 769: 'HU', 18: 'IS',
+    1116: 'IL', 768: 'IT', 1095: 'KZ', 1111: 'XK', 1092: 'LV',
+    1107: 'LI', 1097: 'LT', 1102: 'LU', 1112: 'MT', 1114: 'MD',
+    1109: 'ME', 1118: 'NL', 1090: 'NO', 24: 'PL', 27: 'PT',
+    776: 'IE', 774: 'RO', 1115: 'SM', 14: 'RS', 773: 'SK',
+    1091: 'SI', 9: 'ES', 5: 'SE', 15: 'CH', 777: 'TR', 772: 'UA',
+}
+
+
+# These are senior football associations whose provider identities do not have
+# assigned ISO 3166-1 alpha-2 country codes.  They intentionally use local
+# flag assets rather than weakening ISO validation below.
+FOOTBALL_FLAG_OVERRIDES = {
+    10: ('England', 'GB-ENG', 'matches/football-flags/england.svg'),
+    1108: ('Scotland', 'GB-SCT', 'matches/football-flags/scotland.svg'),
+    767: ('Wales', 'GB-WLS', 'matches/football-flags/wales.svg'),
+    771: ('Northern Ireland', 'GB-NIR', 'matches/football-flags/northern-ireland.svg'),
+    1111: ('Kosovo', 'XK', 'matches/football-flags/kosovo.svg'),
+}
+
+
+ISO_ALPHA_2 = frozenset('''
+AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ
+CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR
+GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT
+JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ
+NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW
+SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ
+UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW
+'''.split())
+
+
+def iso_country_flag(code):
+    """Return an emoji only for an assigned ISO alpha-2 code; never raw text."""
+    if not isinstance(code, str):
+        return None
+    code = code.strip().upper()
+    if code not in ISO_ALPHA_2:
+        return None
+    return ''.join(chr(0x1F1E6 + ord(letter) - ord('A')) for letter in code)
+
+
+def national_team_flag(team):
+    provider_id = team.api_football_id if team else None
+    override = FOOTBALL_FLAG_OVERRIDES.get(provider_id)
+    if override:
+        name, country, asset = override
+        return {'country': country, 'asset': static(asset), 'name': name}
+    country = SENIOR_NATIONAL_COUNTRIES.get(provider_id)
+    emoji = iso_country_flag(country)
+    return {'country': country, 'text': emoji} if emoji else None

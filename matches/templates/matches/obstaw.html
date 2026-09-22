@@ -18,20 +18,19 @@
 </style>
 {% if user.is_authenticated and active_round.is_future_preview %}<style>.intro.card + .intro.card{display:none}</style>{% endif %}
 
-<section class="intro card"><nav><a href="{% url 'typy' %}">AKTUALNA KOLEJKA</a> · <a href="{% url 'typy' %}?tab=previous">POPRZEDNIA KOLEJKA</a> · <a href="{% url 'typy' %}?tab=future">PRZYSZŁA KOLEJKA</a></nav><div class="meta">RUNDA: {{ active_round.name }}</div>{% if active_round.is_future_preview %}<h1>Typy</h1><strong id="chips-counter">CHIPS {{ chip_count }}/5</strong>{% elif active_modifier %}<div class="round-modifier"><span class="round-modifier-mark">✦</span><div><strong>GLOBAL MODIFIER: {{ active_modifier.name }}</strong><p>{{ active_modifier.description }}</p></div></div>{% endif %}</section>
+<section class="intro card"><nav><a href="{% url 'typy' %}">AKTUALNA KOLEJKA</a> · <a href="{% url 'typy' %}?tab=previous">POPRZEDNIA KOLEJKA</a> · <a href="{% url 'typy' %}?tab=future">PRZYSZŁA KOLEJKA</a></nav><div class="meta">RUNDA: {{ active_round.name }}</div>{% if active_round.is_future_preview %}<h1>Typy</h1><strong id="chips-counter">CHIPS {{ chip_count }}/5</strong>{% endif %}</section>
 {% if user.is_authenticated %}<section class="intro card"><div class="meta">TWÓJ WYNIK RUNDY</div><div class="round-score"><div class="round-score-item"><span>TYPY</span><strong>{{ round_score.typy_points|default:0 }}</strong></div><div class="round-score-item"><span>GOLE</span><strong>{{ round_score.gole_points|default:0 }}</strong></div><div class="round-score-item"><span>BONUSY</span><strong>{{ round_score.bonus_points|default:0 }}</strong></div><div class="round-score-item total"><span>TOTAL</span><strong>{{ round_score.total_points|default:0 }}</strong></div></div></section>{% endif %}
-{% if active_round.is_future_preview and active_modifier %}<section class="intro card" style="border-left:5px solid var(--lime)"><div class="meta">GLOBAL MODIFIER — DLA WSZYSTKICH</div><strong>✦ {{ active_modifier.name }}</strong><p>{{ active_modifier.description }}</p></section>{% endif %}
 {% if not user.is_authenticated %}<section class="card intro">Możesz przeglądać mecze. <a href="{% url 'login' %}">Zaloguj się</a>, aby zapisać typy.</section>{% endif %}
 
 {% if user.is_authenticated %}
 <section class="prediction-toolbar card" id="prediction-toolbar" hidden>
-  <div class="prediction-toolbar-top"><div><span class="meta">{% if active_round.is_future_preview %}PRZYSZŁA KOLEJKA{% else %}TWOJE TYPY{% endif %}</span><strong id="prediction-progress"></strong></div>
+  <div class="prediction-toolbar-top"><div><span class="meta">{% if active_round.is_future_preview %}PRZYSZŁA KOLEJKA{% else %}TWOJE TYPY{% endif %}</span><div class="prediction-summary"><strong id="prediction-progress"></strong><strong id="goals-progress" class="goals-progress">GOLE 0/10</strong></div></div>
   {% if has_editable_matches %}
   <div class="view-toggle" role="group" aria-label="Widok typowania"><button type="button" data-view="list" aria-pressed="true">☷ LISTA</button><button type="button" data-view="card" aria-pressed="false">▣ KARTA</button></div></div>
   {% else %}
   </div>
   {% endif %}
-  <div id="league-progress" class="league-progress"></div><div id="chip-progress" class="chip-progress"></div>
+  <div id="league-progress" class="league-progress"></div><div class="prediction-toolbar-details"><div id="chip-progress" class="chip-progress"></div>{% if active_modifier %}<div class="round-modifier toolbar-modifier"><span class="round-modifier-mark">✦</span><div><strong>GLOBAL MODIFIER: {{ active_modifier.name }}</strong><p>{{ active_modifier.description }}</p></div></div>{% endif %}</div>
 </section>
 {% endif %}
 <p id="prediction-feedback" role="status" aria-live="polite" tabindex="-1"></p>
@@ -51,18 +50,19 @@
   </article>
   {% endif %}
 {% empty %}<section class="card intro">Brak meczów w aktywnej rundzie.</section>{% endfor %}
-{% if user.is_authenticated and has_editable_matches %}<div class="actions"><button type="button" class="button secondary" id="clear-predictions">WYCZYŚĆ WSZYSTKIE TYPY</button><button class="button lime" type="submit">ZAPISZ TYPY</button></div>{% endif %}
+{% if user.is_authenticated and has_editable_matches %}<div class="actions"><button type="button" class="button secondary" id="clear-predictions">WYCZYŚĆ WSZYSTKIE TYPY</button><button class="button lime" id="save-predictions" type="submit" disabled>ZAPISZ</button></div>{% endif %}
 <div id="card-navigation" class="card-navigation" hidden><button type="button" class="button secondary" id="card-previous">← POPRZEDNI</button><span id="card-position"></span><button type="button" class="button lime" id="card-next">ZAPISZ I NASTĘPNY →</button></div>
 </form>
 <dialog id="goals-dialog" aria-labelledby="goals-title"><h2 id="goals-title">Obstaw gole</h2><div class="goals-grid">{% for digit in '0123456789abcdef' %}<button type="button" data-goals="{{ forloop.counter0 }}">{{ forloop.counter0 }}</button>{% endfor %}</div><div class="actions"><button type="button" class="button secondary" id="goals-remove">USUŃ TYP GOLE</button><button type="button" class="button" id="goals-close">ZAMKNIJ</button></div></dialog>
 <dialog id="partial-dialog" aria-labelledby="partial-title"><h2 id="partial-title">Zapisać częściowe typy?</h2><p>Nie wybrano jeszcze 10 meczów GOLE. Możesz uzupełnić je później, przed rozpoczęciem meczów.</p><div class="actions"><button type="button" class="button secondary" id="partial-back">WRÓĆ</button><button type="button" class="button lime" id="partial-save">ZAPISZ MIMO TO</button></div></dialog>
 {{ prediction_ui|json_script:"prediction-state" }}
-<link rel="stylesheet" href="{% static 'matches/predictions.css' %}">
+<link rel="stylesheet" href="{% static 'matches/predictions.css' %}?v=national-flags-4">
 {% if chip_error %}<div class="modal"><section class="dialog card"><h2>Sprawdź chip</h2><p>{{ chip_error }}</p><button class="button" type="button" onclick="this.closest('.modal').remove()">WRÓĆ</button></section></div>{% endif %}
 {% if needs_confirmation %}<div class="modal"><section class="dialog card"><h2>Potwierdź zapis</h2><p>Nie wybrałeś 10 meczów do określenia liczby goli. Możesz wrócić do typów albo zapisać mimo to.</p><div class="actions"><a class="button secondary" href="{% url 'typy' %}">WRÓĆ DO TYPÓW</a><button class="button lime" type="button" id="save-anyway">ZAPISZ MIMO TO</button></div></section></div>{% endif %}
 <script>
 // Shared by the enhanced list and card presentations.
 function clearPredictionChecks(form){form.querySelectorAll('input[type=checkbox]:not(:disabled)').forEach(input=>input.checked=false)}
 </script>
-<script src="{% static 'matches/predictions.js' %}" defer></script>
+<dialog id="unsaved-dialog" aria-labelledby="unsaved-title"><h2 id="unsaved-title">Masz niezapisane zmiany</h2><p>Czy chcesz je zapisać przed opuszczeniem tego widoku?</p><div class="actions"><button type="button" class="button lime" data-exit="save">Zapisz i wyjdź</button><button type="button" class="button secondary" data-exit="discard">Wyjdź bez zapisywania</button><button type="button" class="button secondary" data-exit="cancel">Anuluj</button></div></dialog>
+<script src="{% static 'matches/predictions.js' %}?v=national-flags-4" defer></script>
 {% endblock %}

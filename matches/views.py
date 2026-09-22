@@ -103,7 +103,11 @@ def draft(request):
     if not active_draft.is_active:
         return redirect("draft")
     current_day = min(max((timezone.now() - active_draft.starts_at).days + 1, 1), 6)
-    pairs = list(active_draft.pairs.filter(day_number=current_day).select_related("match_a", "match_b", "winner"))
+    pairs = list(active_draft.pairs.filter(day_number=current_day).select_related(
+        "match_a__home_team_entity", "match_a__away_team_entity",
+        "match_b__home_team_entity", "match_b__away_team_entity", "winner",
+    ))
+    draft_completed = active_draft.pairs.count() == 30 and not active_draft.pairs.filter(resolved_at__isnull=True).exists()
     user_votes = {}
     if request.user.is_authenticated:
         user_votes = dict(DraftVote.objects.filter(user=request.user, pair__in=pairs).values_list("pair_id", "selected_match_id"))
@@ -130,6 +134,7 @@ def draft(request):
         "draft": active_draft,
         "pairs": pairs,
         "current_day": current_day,
+        "draft_completed": draft_completed,
         "day_closes_at": active_draft.starts_at + timedelta(days=current_day),
         "completed_votes": completed_votes,
         "modifier_options": modifier_options,
@@ -226,6 +231,9 @@ def typy(request):
             # Ignore fields for other slots supplied by the client.
             merged = QueryDict(mutable=True)
             merged["confirm_less_than_ten"] = request.POST.get("confirm_less_than_ten", "")
+            merged["chip_action"] = request.POST.get("chip_action", "")
+            merged.setlist("clear_prediction", [card_id] if card_id in request.POST.getlist("clear_prediction") else [])
+            merged.setlist("clear_result", [card_id] if card_id in request.POST.getlist("clear_result") else [])
             for match in matches:
                 if str(match.id) == card_id:
                     for prefix in ("result", "goals", "chip"):
@@ -233,26 +241,31 @@ def typy(request):
                         merged.setlist(key, request.POST.getlist(key))
                     continue
                 prediction = existing.get(match.effective_match.id)
-                if prediction and match.chip_prediction_editable:
+                if prediction and match.chip_prediction_editable and prediction.predicted_result:
                     merged.setlist(f"result_{match.id}", match.saved_outcomes or [prediction.predicted_result])
-                    if match.predictions_editable and prediction.total_goals is not None:
-                        merged[f"goals_{match.id}"] = str(prediction.total_goals)
+                if prediction and match.predictions_editable and prediction.total_goals is not None:
+                    merged[f"goals_{match.id}"] = str(prediction.total_goals)
                 merged[f"chip_{match.id}"] = match.saved_chip
             request.POST = merged
             request.prediction_card = True
         goal_match_ids = {item.match_id for item in existing.values() if item.total_goals is not None}
+        effective_goal_targets = {match.id: match.effective_match.id for match in matches}
+        chip_action = card_id is not None and request.POST.get("chip_action") == "1"
+        swap_changes = set(request.POST.getlist("swap_change"))
         changes = []
         deletions = []
         for match in matches:
             if card_id is not None and str(match.id) != card_id:
                 continue
+            clearing = str(match.id) in request.POST.getlist("clear_prediction")
+            clearing_result = str(match.id) in request.POST.getlist("clear_result")
             results = request.POST.getlist(f"result_{match.id}")
             result = results[0] if results else ""
             total_goals = request.POST.get(f"goals_{match.id}", "")
             saved_mind = assignment_by_match.get(match.id)
             prediction_editable = match.predictions_editable or (saved_mind and saved_mind.chip == ChipAssignment.Chip.CHANGE_MIND and saved_mind.prediction_editable)
             if not prediction_editable:
-                if result or total_goals:
+                if result or total_goals or clearing or clearing_result:
                     return HttpResponseBadRequest("Predictions for matches at or after kickoff cannot be edited.")
                 continue
             if any(item not in {"1", "X", "2"} for item in results):
@@ -277,9 +290,34 @@ def typy(request):
             # saved.  This makes the replacement the prediction target in the
             # same explicit-save request that activates SWAP.
             requested_chip = request.POST.get(f"chip_{match.id}", "")
+            current_chip = saved_mind.chip if saved_mind else ""
+            changes_effective_match = (chip_action or str(match.id) in swap_changes) and ((current_chip == ChipAssignment.Chip.SWAP) != (requested_chip == ChipAssignment.Chip.SWAP))
             target_match = match
             if requested_chip == ChipAssignment.Chip.SWAP:
                 target_match = resolve_effective_match(match, replacement_match=draft_loser_for_winner(match))
+            effective_goal_targets[match.id] = target_match.id
+            if changes_effective_match and chip_action:
+                # A direct KARTA chip click changes only the fixture. LISTA,
+                # however, submits one coherent final slot state below, so its
+                # result/GOLE fields must be applied to the submitted effective
+                # match instead of being discarded here.
+                continue
+            if clearing:
+                persisted = existing.get(target_match.id)
+                if result or (persisted and persisted.total_goals is not None and not match.predictions_editable):
+                    return HttpResponseBadRequest("Cannot clear this prediction with a selected outcome or locked GOLE.")
+                deletions.append(target_match.id)
+                goal_match_ids.discard(target_match.id)
+                continue
+            if clearing_result:
+                if result:
+                    return HttpResponseBadRequest("Cannot clear a prediction with a selected outcome.")
+                changes.append((target_match, "", total_goals))
+                if total_goals is None:
+                    goal_match_ids.discard(target_match.id)
+                else:
+                    goal_match_ids.add(target_match.id)
+                continue
             if result:
                 changes.append((target_match, result, total_goals))
                 if total_goals is None:
@@ -287,28 +325,24 @@ def typy(request):
                 else:
                     goal_match_ids.add(target_match.id)
             elif total_goals is not None:
-                # A goal prediction is valid when the final state has a
-                # standard prediction: either submitted above or already
-                # persisted for this effective slot.  Do not require two
-                # separate Save requests.
+                # GOLE are an independent prediction and may be persisted
+                # while the standard 1/X/2 prediction remains undecided.
                 persisted = existing.get(target_match.id)
-                if not persisted:
-                    return render_typy(
-                        request, active_round, matches, existing, request.POST,
-                        chip_error="Wybierz typ 1/X/2 przed zapisaniem liczby goli.",
-                    )
-                changes.append((target_match, persisted.predicted_result, total_goals))
+                changes.append((target_match, persisted.predicted_result if persisted else "", total_goals))
                 goal_match_ids.add(target_match.id)
             elif target_match.id in existing:
                 deletions.append(target_match.id)
                 goal_match_ids.discard(target_match.id)
-        goal_count = len(goal_match_ids)
+        # Retained predictions on swapped-out fixtures do not consume a goal
+        # slot. Use the final submitted fixture for edited slots and the saved
+        # effective fixture for untouched or locked slots.
+        goal_count = len(goal_match_ids.intersection(effective_goal_targets.values()))
         if goal_count > 10:
             return HttpResponseBadRequest("A maximum of 10 goal predictions is allowed per round.")
-        if goal_count < 10 and request.POST.get("confirm_less_than_ten") != "1":
-            if not request.prediction_card:
-                messages.warning(request, f"Nie wybrałeś 10 meczów do określenia liczby goli. Obecnie masz {goal_count}/10. Jeśli zapiszesz teraz, nie zdobędziesz punktów za pozostałe predykcje.")
+        if goal_count < 10 and request.POST.get("confirm_less_than_ten") != "1" and not request.prediction_card:
+            messages.warning(request, f"Nie wybrałeś 10 meczów do określenia liczby goli. Obecnie masz {goal_count}/10. Jeśli zapiszesz teraz, nie zdobędziesz punktów za pozostałe predykcje.")
             return render_typy(request, active_round, matches, existing, request.POST, True)
+        clearing_ids = set(request.POST.getlist("clear_prediction")) | set(request.POST.getlist("clear_result"))
         desired_chips = []
         for match in matches:
             chip = request.POST.get(f"chip_{match.id}", "")
@@ -323,6 +357,12 @@ def typy(request):
                 if chip:
                     return HttpResponseBadRequest("Chip assignments lock at kickoff.")
             if not chip:
+                continue
+            if str(match.id) in clearing_ids and chip in {
+                ChipAssignment.Chip.BANKER,
+                ChipAssignment.Chip.DOUBLE_PICK,
+                ChipAssignment.Chip.GOOOOOOOAL,
+            }:
                 continue
             outcomes = request.POST.getlist(f"result_{match.id}") if chip == ChipAssignment.Chip.DOUBLE_PICK else []
             goal_team = ""
@@ -343,8 +383,10 @@ def typy(request):
         if len(desired_chips) != len({match.id for match, *_ in desired_chips}):
             return HttpResponseBadRequest("Only one chip can be assigned to a match.")
         for match, chip, outcomes, _, _ in desired_chips:
-            if chip == ChipAssignment.Chip.BANKER and not request.POST.getlist(f"result_{match.id}") and not existing.get(match.effective_match.id):
-                return render_typy(request, active_round, matches, existing, request.POST, chip_error="BANKER wymaga typu 1/X/2.")
+            if chip == ChipAssignment.Chip.BANKER and not request.POST.getlist(f"result_{match.id}"):
+                persisted = existing.get(match.effective_match.id)
+                if not persisted or not persisted.predicted_result or str(match.id) in clearing_ids:
+                    return render_typy(request, active_round, matches, existing, request.POST, chip_error="BANKER wymaga typu 1/X/2.")
             if chip == ChipAssignment.Chip.DOUBLE_PICK and set(outcomes) not in ({"1", "X"}, {"1", "2"}, {"X", "2"}):
                 return render_typy(request, active_round, matches, existing, request.POST, chip_error="DOUBLE PICK wymaga dokładnie dwóch różnych wyników.")
         try:
@@ -387,8 +429,9 @@ def typy(request):
         except ValidationError as error:
             return render_typy(request, active_round, matches, existing, request.POST, chip_error=error.messages[0])
         if request.prediction_card:
-            from .services.prediction_ui import persisted_state
-            return JsonResponse({"saved": True, "slots": persisted_state(request.user, active_round, matches)})
+            from .services.prediction_ui import completion_state, persisted_state
+            slots = persisted_state(request.user, active_round, matches)
+            return JsonResponse({"saved": True, "slots": slots, "completion": completion_state(slots)})
         messages.success(request, "Typy zostały zapisane.")
         return redirect(request.path + ("?tab=future" if tab == "future" else ""))
     return render_typy(request, active_round, matches, existing)
@@ -412,11 +455,16 @@ def render_typy(request, active_round, matches, existing, form_data=None, needs_
         assignment.match_id: assignment
         for assignment in ChipAssignment.objects.filter(user=request.user, round=active_round)
     } if request.user.is_authenticated else {}
+    from .services.prediction_ui import slot_actionability
     for match in matches:
         prediction = existing.get(match.effective_match.id)
         match.saved_prediction = prediction.predicted_result if prediction else ""
         match.saved_goals = "" if not prediction or prediction.total_goals is None else prediction.total_goals
-        match.prediction_ui = bool(request.user.is_authenticated and match.chip_prediction_editable and match.effective_match.status not in {"FINISHED", "CANCELLED"})
+        match.prediction_ui = slot_actionability(
+            match,
+            assignment_by_match.get(match.id),
+            authenticated=request.user.is_authenticated,
+        )[0]
         if form_data is not None:
             match.saved_prediction = form_data.get(f"result_{match.id}", match.saved_prediction)
             match.saved_goals = form_data.get(f"goals_{match.id}", match.saved_goals)
