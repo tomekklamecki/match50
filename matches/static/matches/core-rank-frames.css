@@ -1,0 +1,117 @@
+/* Material frames consume the existing server tier; no progression rules live here. */
+.core-rank-list{gap:12px}
+.core-rank-list .rank-frame{
+  --metal:#727d78;--next-metal:#bc865d;--edge:linear-gradient(135deg,#727d78,#39453e);
+  position:relative;isolation:isolate;overflow:hidden;min-width:0;padding:13px 18px 11px;
+  border:1px solid transparent;border-radius:12px;
+  background:linear-gradient(115deg,#242e28,#18201d 65%) padding-box,var(--edge) border-box;
+  color:#f5f8f1;font-family:Inter,"Segoe UI",Arial,sans-serif;
+  box-shadow:0 3px 9px #18201d12;
+}
+.core-rank-list .rank-frame:first-child{border-top:1px solid transparent}
+.rank-frame .progress-head,.rank-frame .progress-meta,.rank-frame .progress-track{position:relative;z-index:2}
+.rank-frame .progress-head{align-items:center;color:#f5f8f1;gap:12px;font-size:14px;letter-spacing:.04em}
+.rank-frame .progress-head>span:first-child{min-width:0;overflow-wrap:anywhere;color:#c2f34b}
+.rank-frame .progress-head>span:last-child{flex-shrink:0;color:var(--metal);font-size:9px;letter-spacing:.08em;padding:5px 7px;border:1px solid color-mix(in srgb,var(--metal) 40%,transparent);border-radius:5px;background:#111a1690}
+.rank-frame .progress-meta{color:#c2f34b;font-size:12px;margin:8px 0 5px;gap:10px;font-variant-numeric:tabular-nums}
+.rank-frame .progress-meta>span:first-child{color:#c2f34b;font-size:13px;font-weight:850}
+.rank-frame .progress-meta>span:last-child{text-align:right}
+.rank-frame .progress-track{height:7px;background:#0f1814;border:1px solid #ffffff12;border-radius:5px;box-shadow:0 1px #ffffff08}
+.rank-frame .progress-track i{background:linear-gradient(90deg,var(--metal),var(--next-metal));border-radius:3px;box-shadow:inset 0 1px #ffffff60}
+.rank-frame-effects{position:absolute;inset:0;pointer-events:none;z-index:1;border-radius:inherit}
+.rank-frame[data-rank="BRONZE"]{--metal:#d7a077;--next-metal:#d3dfe4;--edge:linear-gradient(125deg,#6a4635,#d6a078 18%,#815436 40%,#f0c79d 70%,#79513c);box-shadow:inset 0 0 0 1px #bd815618,0 3px 9px #18201d18}
+.rank-frame[data-rank="BRONZE"] .rank-frame-effects{background:radial-gradient(ellipse at 14% 0,#e7b18480,transparent 18%);animation:rank-breathe 9s ease-in-out infinite}
+.rank-frame[data-rank="SILVER"]{--metal:#d3dfe4;--next-metal:#e7c56c;--edge:linear-gradient(115deg,#667983,#edf8ff 18%,#8b9b9e 32%,#d9e4e8 55%,#4f626b 75%,#effaff);box-shadow:inset 0 0 0 2px #b5c9ce18,0 4px 10px #18201d24}
+.rank-frame[data-rank="SILVER"] .rank-frame-effects{inset:4px;border:1px solid #bfd7e32b;background:linear-gradient(110deg,transparent 20%,#deefff12 21%,transparent 40%)}
+.rank-frame[data-rank="GOLD"]{--metal:#e7c56c;--next-metal:#b7e8e7;--edge:linear-gradient(120deg,#9b6b25,#fff0b1 16%,#a7782d 30%,#edcf7b 52%,#8b6023 75%,#ffedac);border-width:2px;box-shadow:inset 0 0 0 2px #dcb85120,0 5px 14px #36270d26}
+.rank-frame[data-rank="GOLD"] .rank-frame-effects{inset:4px;border:1px solid #e8c36840}
+.rank-frame[data-rank="GOLD"] .rank-frame-effects::after{content:"";position:absolute;inset:-5px;background:linear-gradient(110deg,transparent 35%,#fff3baaa 49%,transparent 62%);background-size:300% 100%;mask:linear-gradient(#000 0 0) top/100% 2px no-repeat,linear-gradient(#000 0 0) bottom/100% 2px no-repeat;animation:rank-gleam 8s ease-in-out infinite}
+.rank-frame:is([data-rank="PLATINUM"],[data-rank="DIAMOND"],[data-rank="GODLIKE"]){--metal:#b7e8e7;--next-metal:#80cfff;border-width:2px;--edge:linear-gradient(125deg,#548f95,#d8ffff 15%,#5d9ca4 28%,#bfecee 52%,#47767f 70%,#e4ffff);box-shadow:inset 0 0 0 3px #a1e3e51c,0 5px 16px #224b5229}
+.rank-frame:is([data-rank="PLATINUM"],[data-rank="DIAMOND"],[data-rank="GODLIKE"]) .rank-frame-effects{inset:4px;border:1px solid #b5fbff40;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='110' viewBox='0 0 480 110'%3E%3Cg fill='none' stroke='%23a4eaf4' stroke-width='.8' opacity='.55'%3E%3Cpath d='M0 35L18 35 35 8 80 8 95 0M0 48L24 48 44 16 68 16M480 28L452 28 432 8 394 8M480 47L460 47 437 19 405 19M0 85L28 85 42 104 86 104M480 80L457 80 435 104 385 104'/%3E%3C/g%3E%3Cg fill='%23d9ffff'%3E%3Ccircle cx='35' cy='8' r='2'/%3E%3Ccircle cx='452' cy='28' r='2'/%3E%3Ccircle cx='435' cy='104' r='2'/%3E%3C/g%3E%3C/svg%3E") center/100% 100%;animation:rank-breathe 5s ease-in-out infinite}
+.rank-frame:is([data-rank="DIAMOND"],[data-rank="GODLIKE"]){--metal:#80cfff;--next-metal:#e3faff;--edge:conic-gradient(from 35deg,#5787bd,#e6ffff 12%,#62bad6 19%,#efffff 24%,#37608b 34%,#b3f4ff 47%,#fff 50%,#659ed1 65%,#d5ffff 79%,#4d81b1 90%,#5787bd);border-width:3px;border-radius:12px 3px 12px 3px;box-shadow:inset 0 0 0 2px #c9f8ff38,inset 0 0 22px #65b7ed0e,0 6px 18px #1d4a6d33,0 0 0 1px #82bcdb55}
+.rank-frame:is([data-rank="DIAMOND"],[data-rank="GODLIKE"])::before{content:"";position:absolute;inset:0;pointer-events:none;background:conic-gradient(from 40deg at 0 0,#e1ffff80,transparent 18%,#81c5f340 25%,transparent 31%) top left/36px 36px no-repeat,conic-gradient(from 220deg at 100% 100%,#e1ffff80,transparent 18%,#81c5f340 25%,transparent 31%) bottom right/36px 36px no-repeat}
+.rank-frame:is([data-rank="DIAMOND"],[data-rank="GODLIKE"]) .rank-frame-effects{inset:6px;border-color:#c1f6ff70;box-shadow:0 0 0 2px #7ac4e21a;animation:rank-breathe 4s ease-in-out infinite}
+.rank-frame:is([data-rank="DIAMOND"],[data-rank="GODLIKE"])::after{content:"";position:absolute;inset:0;pointer-events:none;border-radius:inherit;background:linear-gradient(115deg,transparent 35%,#edffff 49%,#7ac9ff80 52%,transparent 65%);background-size:350% 100%;mask:linear-gradient(#000 0 0) top/100% 3px no-repeat,linear-gradient(#000 0 0) bottom/100% 3px no-repeat,linear-gradient(#000 0 0) left/3px 100% no-repeat,linear-gradient(#000 0 0) right/3px 100% no-repeat;animation:rank-gleam 5s ease-in-out infinite}
+.rank-frame:is([data-rank="DIAMOND"],[data-rank="GODLIKE"]) .progress-track i{background:linear-gradient(110deg,#70b6e9,#d5fbff 35%,#8ecfee 55%,#f2ffff 80%,#a5dcf8)}
+/* Structural prestige: each material has its own visible construction. */
+.core-rank-list{gap:18px;padding:4px}
+.core-rank-list .rank-frame{overflow:visible}
+.rank-frame[data-rank="BRONZE"] .rank-frame-effects{background:url("./rank-bronze.svg") center/100% 100%;animation:none}
+.rank-frame[data-rank="BRONZE"] .rank-frame-effects::after{content:"";position:absolute;top:1px;left:12px;width:4px;height:4px;background:#ffe0b5;box-shadow:0 0 5px #dba370;border-radius:50%;animation:rank-spark 12s ease-in-out infinite}
+.core-rank-list .rank-frame[data-rank="SILVER"]{border-radius:4px;border-width:2px;box-shadow:0 2px 0 #52636c,0 5px 10px #18201d25}
+.rank-frame[data-rank="SILVER"] .rank-frame-effects{inset:-2px;background:url("./rank-silver.svg") center/100% 100%;border:0;border-radius:4px}
+.rank-frame[data-rank="SILVER"] .rank-frame-effects::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 35%,#fff 50%,transparent 65%);background-size:300% 100%;mask:linear-gradient(#000 0 0) top/100% 2px no-repeat;animation:rank-gleam 11s ease-in-out infinite}
+.core-rank-list .rank-frame[data-rank="GOLD"]{border-radius:3px 12px 3px 12px;border-width:2px;box-shadow:0 3px 0 #72501c,0 6px 0 #d0ab6130,0 8px 16px #36270d29}
+.rank-frame[data-rank="GOLD"] .rank-frame-effects{inset:-3px;border:0;background:url("./rank-gold.svg") center/100% 100%}
+.core-rank-list .rank-frame[data-rank="PLATINUM"]{border-radius:2px 16px 2px 16px;padding:16px 28px 14px;border-color:#70b3bb;background:linear-gradient(115deg,#243332,#18201d 65%) padding-box;box-shadow:0 0 0 3px #162c31,0 0 0 4px #84c2ca50,0 7px 18px #224b5230}
+.rank-frame[data-rank="PLATINUM"] .rank-frame-effects{inset:-6px;border:0;border-radius:0;background:url("./rank-platinum.svg") center/100% 100%;animation:none}
+.rank-frame[data-rank="PLATINUM"] .rank-frame-effects::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,#dfffff 50%,transparent 70%);background-size:350% 100%;mask:url("./rank-platinum.svg") center/100% 100%;animation:rank-gleam 7s ease-in-out infinite}
+.core-rank-list .rank-frame:is([data-rank="DIAMOND"],[data-rank="GODLIKE"]){padding:18px 30px 16px;margin:5px 0;border:0;border-radius:18px 3px;background:linear-gradient(120deg,#25353c,#18201d 55%,#1d3038);box-shadow:0 9px 18px #163b5140,0 0 14px #8acff126}
+.rank-frame:is([data-rank="DIAMOND"],[data-rank="GODLIKE"]) .rank-frame-effects{inset:-8px;border:0;box-shadow:none;border-radius:0;background:url("./rank-diamond.svg") center/100% 100%;animation:none;filter:drop-shadow(0 2px 1px #244c77)}
+.rank-frame:is([data-rank="DIAMOND"],[data-rank="GODLIKE"])::before{inset:-13px;background:conic-gradient(from 30deg,#fff,#7dbadf,#2f5c91,#dfffff,#fff) top left/28px 28px no-repeat,conic-gradient(from 200deg,#fff,#7dbadf,#2f5c91,#dfffff,#fff) bottom right/28px 28px no-repeat;clip-path:polygon(0 0,24px 0,32px 20px,calc(100% - 32px) calc(100% - 20px),calc(100% - 24px) 100%,100% 100%,100% calc(100% - 24px),calc(100% - 20px) calc(100% - 32px),20px 32px,0 24px);filter:drop-shadow(0 0 3px #b1ecff)}
+.rank-frame:is([data-rank="DIAMOND"],[data-rank="GODLIKE"])::after{inset:-8px;mask:url("./rank-diamond.svg") center/100% 100%;animation-duration:8s}
+.rank-frame[data-rank="GOLD"] .progress-track{height:8px;box-shadow:0 1px #d8bb5838}
+.rank-frame[data-rank="PLATINUM"] .progress-track{height:8px;border-radius:2px;border-color:#8bdde544}
+.rank-frame:is([data-rank="DIAMOND"],[data-rank="GODLIKE"]) .progress-track{height:9px;border-radius:1px;border-color:#c2efff60;box-shadow:0 1px #8fc1e34d}
+.rank-frame:is([data-rank="DIAMOND"],[data-rank="GODLIKE"]) .progress-track i{border-radius:0;background:repeating-linear-gradient(115deg,#ffffff30 0 6px,transparent 6px 14px),linear-gradient(90deg,#71abd9,#c8f6ff 65%,#f0ffff)}
+@keyframes rank-spark{0%,85%,100%{opacity:0;transform:scale(.5)}90%{opacity:1;transform:scale(1)}}
+@keyframes rank-breathe{0%,100%{opacity:.5}50%{opacity:1}}
+@keyframes rank-gleam{0%,25%{background-position:100% 0;opacity:0}35%{opacity:.9}65%{opacity:.9}80%,100%{background-position:0 0;opacity:0}}
+@media(max-width:480px){.core-rank-list .rank-frame{padding:12px 13px 10px}.rank-frame .progress-head{font-size:13px}.rank-frame .progress-meta{font-size:11px}.rank-frame .progress-meta>span:first-child{font-size:12px}.rank-frame .progress-head>span:last-child{font-size:8px;padding:4px 5px}.core-rank-list .rank-frame[data-rank="PLATINUM"]{padding:14px 18px 12px}.core-rank-list .rank-frame:is([data-rank="DIAMOND"],[data-rank="GODLIKE"]){padding:16px 20px 14px}}
+/* Motion begins with Gold. Lower materials and Diamond retain their static frame. */
+.rank-frame:is([data-rank="BRONZE"],[data-rank="SILVER"]) .rank-frame-effects::after,
+.rank-frame:is([data-rank="DIAMOND"],[data-rank="GODLIKE"])::after{animation:none;opacity:0}
+.rank-frame[data-rank="GOLD"] .rank-frame-effects::after{
+  inset:0;background:linear-gradient(100deg,transparent 40%,#fff0bfbb 49%,transparent 58%) 100% 0/300% 100%;
+  mask:url("./rank-gold.svg") center/100% 100%;clip-path:inset(0 58% 80% 10%);
+  animation:gold-light-catch 16s ease-in-out infinite;opacity:0;
+}
+.rank-frame[data-rank="PLATINUM"] .rank-frame-effects::after{content:none}
+.rank-current{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+.current-route{
+  fill:none;stroke:#e6ffff;stroke-width:2.3;stroke-linecap:round;
+  stroke-dasharray:5 115;stroke-dashoffset:6;opacity:0;
+  filter:drop-shadow(0 0 2px #82eef4);
+  animation:platinum-current 14s linear infinite;
+}
+.current-route-b{animation-delay:7s}
+.current-node{fill:#f2ffff;opacity:0;filter:drop-shadow(0 0 3px #82eef4);animation:platinum-node 14s ease-in-out infinite}
+.current-node-b{animation-delay:7s}
+@keyframes gold-light-catch{
+  0%,73%{background-position:100% 0;opacity:0}
+  76%{opacity:.65}86%{opacity:.65}
+  89%,100%{background-position:0 0;opacity:0}
+}
+@keyframes platinum-current{
+  0%,10%{stroke-dashoffset:6;opacity:0}
+  12%{opacity:1}
+  33%{stroke-dashoffset:-100;opacity:1}
+  36%,100%{stroke-dashoffset:-106;opacity:0}
+}
+@keyframes platinum-node{0%,31%,39%,100%{opacity:0}34%{opacity:.95}}
+.rank-frame[data-rank="GOLD"] .rank-frame-effects::after{background-image:linear-gradient(100deg,transparent 44%,#fff6ce 49%,#fff 50%,#ffe8a5 51%,transparent 56%);background-size:220% 100%;clip-path:inset(0 35% 72% 0);animation:gold-visible-catch 2.3333s ease-in-out infinite}
+@keyframes gold-visible-catch{0%{background-position:100% 0;opacity:0}5%,32%{opacity:1}40%,100%{background-position:0 0;opacity:0}}
+.rank-current .current-route,.rank-current .current-node{animation:none;opacity:0}
+.circuit-spark{filter:drop-shadow(0 0 2px #79e9f5)}
+.spark-arcs{animation:tiny-arc 1.1s steps(2,end) infinite;transform-origin:center}
+@keyframes tiny-arc{0%,100%{opacity:.3;transform:scale(.7)}35%{opacity:.9;transform:scale(1)}70%{opacity:.5;transform:scale(.85) rotate(15deg)}}
+@media(prefers-reduced-motion:reduce){
+  .rank-current{display:none}
+  .spark-arcs{animation:none}
+  .rank-frame-effects,.rank-frame::after,.rank-frame-effects::after,.current-route,.current-node{animation:none!important}
+  .rank-frame[data-rank="GOLD"] .rank-frame-effects::after,.current-route,.current-node{opacity:0}
+}
+.mastery-rank-list .mastery-name{color:#c2f34b}
+.mastery-rank-list .mastery-name .league-flag{flex:0 0 auto}
+.mastery-more{margin-top:14px}
+.mastery-more>summary{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;min-height:42px;padding:10px 14px;border:1px solid #415047;border-radius:7px;background:#18201d;color:#c2f34b;font-size:10px;font-weight:850;letter-spacing:.065em;cursor:pointer;list-style:none;transition:background .15s,border-color .15s,box-shadow .15s}
+.mastery-more>summary::-webkit-details-marker{display:none}
+.mastery-more>summary:hover{background:#243028;border-color:#87aa47;box-shadow:0 3px 9px #18201d18}
+.mastery-more>summary:focus-visible{outline:3px solid #86ad3d;outline-offset:3px}
+.mastery-more-arrow{font-size:17px;line-height:.7;transition:transform .18s ease}
+.mastery-more-hide{display:none}
+.mastery-more[open]>summary{margin-bottom:14px}
+.mastery-more[open] .mastery-more-show{display:none}
+.mastery-more[open] .mastery-more-hide{display:inline}
+.mastery-more[open] .mastery-more-arrow{transform:rotate(180deg)}
+@media(prefers-reduced-motion:reduce){.mastery-more-arrow{transition:none}}

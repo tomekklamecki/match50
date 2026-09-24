@@ -114,6 +114,8 @@ class CoreProgressionTests(TestCase):
         self.assertContains(response, 'class="profile-info-icon" tabindex="0"')
         self.assertContains(response, 'class="profile-info-tooltip" role="tooltip" hidden')
         self.assertContains(response, 'Suma poprawnych typów w danych rozgrywkach')
+        self.assertContains(response, 'class="mastery-more"')
+        self.assertContains(response, 'POKAŻ POZOSTAŁE 4')
         self.assertNotContains(response, "0 / 10")
         self.assertContains(response, "???????", count=3)
 

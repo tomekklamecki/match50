@@ -2,6 +2,7 @@
 
 from matches.models import ChipAssignment, Match
 from matches.services.effective_match import resolve_effective_match
+from matches.services.scoring import actual_outcome
 
 
 def prepare_settled_match(slot, assignment=None, prediction=None, score_info=None):
@@ -12,6 +13,7 @@ def prepare_settled_match(slot, assignment=None, prediction=None, score_info=Non
     """
     score_info = score_info or {}
     slot.effective_match = resolve_effective_match(slot, assignment)
+    slot.actual_outcome = actual_outcome(slot.effective_match)
     slot.saved_chip = assignment.chip if assignment else ""
     slot.saved_outcomes = assignment.outcomes if assignment and assignment.chip == ChipAssignment.Chip.DOUBLE_PICK else []
     slot.saved_goal_team = assignment.goal_team if assignment else ""

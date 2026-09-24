@@ -1,22 +1,27 @@
 {% extends "matches/base.html" %}
+{% load static %}
 {% block content %}
-<style>
-  .ranking-head,.ranking-row{padding:16px;margin-bottom:7px}.ranking-tabs{display:flex;gap:6px;padding:4px;border-radius:12px;background:#edf1f7;width:max-content}.ranking-tabs a{padding:9px 13px;border-radius:8px;color:var(--navy);font-size:12px;font-weight:900;text-decoration:none}.ranking-tabs a.active{background:var(--navy);color:#fff;box-shadow:0 3px 8px #0d1b3f25}.ranking-head h1{margin:15px 0 2px;font-size:25px}.ranking-head p{margin:0;color:var(--muted);font-size:13px;font-weight:800}.ranking-row{display:grid;grid-template-columns:58px minmax(160px,1fr) repeat(4,minmax(66px,auto));gap:10px;align-items:center;border:1px solid var(--line);border-radius:12px;background:#fff}.ranking-row.header{margin-top:14px;background:#f8fafc;color:var(--muted);font-size:10px;font-weight:900;letter-spacing:.05em}.ranking-place{display:flex;align-items:center;gap:7px;font-weight:950}.ranking-medal{font-size:19px;line-height:1}.ranking-player{min-width:0}.ranking-player a{color:var(--navy);font-weight:900;text-decoration:none}.ranking-player a:hover{text-decoration:underline;text-underline-offset:3px}.ranking-stat{font-size:13px;font-weight:800;text-align:center}.ranking-total{padding:7px 9px;border-radius:8px;background:var(--navy);color:#fff;font-size:15px;font-weight:950;text-align:center}.ranking-row.podium-1{border-color:#e1bf54;background:#fffdf5}.ranking-row.podium-2{border-color:#cbd3df;background:#fbfcfe}.ranking-row.podium-3{border-color:#dfb38e;background:#fffaf6}.ranking-row.current{border:2px solid var(--lime);box-shadow:0 0 0 2px #eff9cb}.ranking-empty{padding:20px;color:var(--muted);font-weight:800;text-align:center}@media(max-width:650px){.ranking-head,.ranking-row{padding:12px}.ranking-tabs{width:100%}.ranking-tabs a{flex:1;padding:10px 5px;text-align:center;font-size:11px}.ranking-row{grid-template-columns:48px minmax(0,1fr) 58px 58px;gap:7px}.ranking-row.header{display:none}.ranking-stat:nth-of-type(3),.ranking-stat:nth-of-type(4){display:none}.ranking-total{font-size:14px}.ranking-player a{font-size:13px}.ranking-row .ranking-stat:first-of-type{grid-column:3}.ranking-total{grid-column:4}.ranking-row .ranking-place{grid-column:1}.ranking-row .ranking-player{grid-column:2}}
-</style>
-
-<section class="ranking-head card">
-  <nav class="ranking-tabs" aria-label="Zakres rankingu"><a class="{% if ranking_type == 'round' %}active{% endif %}" href="?type=round">KOLEJKA</a><a class="{% if ranking_type == 'month' %}active{% endif %}" href="?type=month">MIESIĄC</a><a class="{% if ranking_type == 'season' %}active{% endif %}" href="?type=season">SEZON</a></nav>
-  <h1>RANKING</h1><p>{{ title }}</p>
-</section>
-
-<section class="ranking-row header card"><span>POZ.</span><span>GRACZ</span><span>TYPY</span><span>GOLE</span><span>BONUSY</span><span>TOTAL</span></section>
-{% for entry in entries %}
-<section class="ranking-row card {% if entry.rank == 1 %}podium-1{% elif entry.rank == 2 %}podium-2{% elif entry.rank == 3 %}podium-3{% endif %}">
-  <strong class="ranking-place">{% if entry.rank == 1 %}<span class="ranking-medal" aria-label="złoto">🥇</span>{% elif entry.rank == 2 %}<span class="ranking-medal" aria-label="srebro">🥈</span>{% elif entry.rank == 3 %}<span class="ranking-medal" aria-label="brąz">🥉</span>{% endif %}{{ entry.rank }}</strong>
-  <strong class="ranking-player"><a href="{% url 'player_profile' entry.username %}">{{ entry.username }}</a></strong><span class="ranking-stat">{{ entry.typy }}</span><span class="ranking-stat">{{ entry.gole }}</span><span class="ranking-stat">{{ entry.bonusy }}</span><strong class="ranking-total">{{ entry.total }}</strong>
-</section>
-{% empty %}<section class="ranking-empty card">Brak wyników dla tego rankingu.</section>{% endfor %}
-{% if current_entry %}
-<section class="ranking-row card current"><strong class="ranking-place">{{ current_entry.rank }}</strong><strong class="ranking-player"><a href="{% url 'player_profile' current_entry.username %}">{{ current_entry.username }}</a></strong><span class="ranking-stat">{{ current_entry.typy }}</span><span class="ranking-stat">{{ current_entry.gole }}</span><span class="ranking-stat">{{ current_entry.bonusy }}</span><strong class="ranking-total">{{ current_entry.total }}</strong></section>
-{% endif %}
+<link rel="stylesheet" href="{% static 'matches/core-rank-frames.css' %}">
+<link rel="stylesheet" href="{% static 'matches/rankings.css' %}?v=2">
+<div class="ranking-experience">
+  <header class="ranking-head">
+    <div><span class="ranking-eyebrow">MATCH50 / KLASYFIKACJA</span><h1>RANKING</h1><p>{{ title }}</p></div>
+    <nav class="ranking-tabs" aria-label="Zakres rankingu">
+      <a {% if ranking_type == 'round' %}aria-current="page"{% endif %} href="?type=round">KOLEJKA</a>
+      <a {% if ranking_type == 'month' %}aria-current="page"{% endif %} href="?type=month">MIESIĄC</a>
+      <a {% if ranking_type == 'season' %}aria-current="page"{% endif %} href="?type=season">SEZON</a>
+    </nav>
+  </header>
+  <p class="ranking-caption">Wynik wyznacza miejsce. Ramka pokazuje najwyższą rangę osiągnięć gracza.</p>
+  <div class="ranking-columns" aria-hidden="true"><span>POZ.</span><span>GRACZ / RANGA</span><span>TYPY</span><span>GOLE</span><span>BONUSY</span><span>PUNKTY</span></div>
+  <div class="core-rank-list ranking-list">
+    {% for entry in entries %}
+      {% include 'matches/_ranking_row.html' %}
+    {% empty %}<p class="ranking-empty">Brak wyników dla tego rankingu.</p>{% endfor %}
+    {% if current_entry %}
+      <p class="ranking-current-label">TWOJE MIEJSCE</p>
+      {% include 'matches/_ranking_row.html' with entry=current_entry %}
+    {% endif %}
+  </div>
+</div>
 {% endblock %}

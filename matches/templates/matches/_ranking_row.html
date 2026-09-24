@@ -1,0 +1,12 @@
+<section class="ranking-row rank-frame{% if entry.user_id == request.user.id %} ranking-self{% endif %}" data-rank="{{ entry.tier }}" aria-label="Miejsce {{ entry.rank }}: {{ entry.username }}">
+  <span class="rank-frame-effects" aria-hidden="true"></span>
+  <strong class="ranking-place" aria-label="Miejsce {{ entry.rank }}">{{ entry.rank|stringformat:'02d' }}</strong>
+  <div class="ranking-player">
+    <a href="{% url 'player_profile' entry.username %}">{{ entry.username }}</a>
+    <span class="ranking-tier">{{ entry.rank_label }}{% if entry.user_id == request.user.id %}<b class="ranking-you">TY</b>{% endif %}</span>
+  </div>
+  <span class="ranking-stat"><small>TYPY</small>{{ entry.typy }}</span>
+  <span class="ranking-stat"><small>GOLE</small>{{ entry.gole }}</span>
+  <span class="ranking-stat"><small>BONUSY</small>{{ entry.bonusy }}</span>
+  <strong class="ranking-total"><small>PKT</small>{{ entry.total }}</strong>
+</section>

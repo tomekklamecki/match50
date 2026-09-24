@@ -1,0 +1,5 @@
+<nav class="round-tabs" aria-label="Kolejki">
+  <a href="{% url 'typy' %}" {% if not selected_tab and not active_round.is_future_preview %}aria-current="page"{% endif %}>AKTUALNA KOLEJKA</a>
+  <a href="{% url 'typy' %}?tab=previous" {% if selected_tab == 'previous' %}aria-current="page"{% endif %}>POPRZEDNIA KOLEJKA</a>
+  <a href="{% url 'typy' %}?tab=future" {% if selected_tab == 'future' or active_round.is_future_preview %}aria-current="page"{% endif %}>PRZYSZŁA KOLEJKA</a>
+</nav>

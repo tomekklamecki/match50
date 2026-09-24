@@ -9,6 +9,19 @@ from .team_visuals import match_presentation
 from .team_form import forms_for_matches
 
 
+CHIP_DISPLAY_LABELS = {
+    ChipAssignment.Chip.BANKER: "BANKER",
+    ChipAssignment.Chip.DOUBLE_PICK: "DOUBLE PICK",
+    ChipAssignment.Chip.CHANGE_MIND: "VAR",
+    ChipAssignment.Chip.SWAP: "SWAP",
+    ChipAssignment.Chip.GOOOOOOOAL: "GOOOOL!",
+}
+
+
+def chip_display_label(chip):
+    return CHIP_DISPLAY_LABELS.get(chip, chip)
+
+
 def completion_state(slots):
     values = list(slots.values())
     goals_selected = sum(slot["goals"] != "" for slot in values)
@@ -77,7 +90,7 @@ def presentation_state(user, round_, matches):
             match, assignment, authenticated=user.is_authenticated
         )
         chips = {}
-        for chip, label in ChipAssignment.Chip.choices:
+        for chip, _label in ChipAssignment.Chip.choices:
             reason = ""
             if not user.is_authenticated or not match.predictions_editable:
                 reason = "Chipy są zablokowane."
@@ -92,7 +105,7 @@ def presentation_state(user, round_, matches):
                 except ValidationError as error:
                     reason = error.messages[0]
             chips[chip] = {
-                "label": label, "reason": reason,
+                "label": chip_display_label(chip), "reason": reason,
                 "lockReason": "Chipy są zablokowane." if not user.is_authenticated or not match.predictions_editable else "",
                 "limit": 2 if chip == ChipAssignment.Chip.DOUBLE_PICK else 1,
                 "allowed": ["1", "2"] if chip == ChipAssignment.Chip.GOOOOOOOAL else ["1", "X", "2"],

@@ -139,6 +139,24 @@ def current_performance(user):
         "season": _performance_entry(season_ranking(season), user) if season else {"points": 0, "rank": None},
     }
 
+def highest_core_ranks(user_ids):
+    """Batch the same visible CORE progression used by the profile panels."""
+    from .achievements import CORE_NAMES, TIERS, GOAL_TIERS, REPEAT_TIERS, STREAK_TIERS
+    thresholds = {"TYPY": TIERS, "GOLE": GOAL_TIERS, "STREAK": STREAK_TIERS,
+                  "TYPY_AGAIN": REPEAT_TIERS, "GOLE_AGAIN": REPEAT_TIERS, "STREAK_AGAIN": REPEAT_TIERS}
+    ranks = dict.fromkeys(user_ids, "NONE")
+    order = {tier: index for index, tier in enumerate(("NONE", *CORE_NAMES))}
+    states = UserAchievement.objects.filter(user_id__in=ranks, achievement__code__in=thresholds).select_related("achievement")
+    for state in states:
+        code = state.achievement.code
+        if code.endswith("_AGAIN") and not state.context_data.get("discovered"):
+            continue
+        tier = _progress(state.progress, thresholds[code])["tier"]
+        if order.get(tier, 0) > order[ranks[state.user_id]]:
+            ranks[state.user_id] = tier
+    return ranks
+
+
 def profile_data(user, page=1, competition=None, result=None, round_id=None):
     unlocks=list(UserAchievement.objects.filter(user=user).select_related("achievement").order_by("-unlocked_at"))
     league_codes=[("EPL","Premier League"),("LALIGA","La Liga"),("BUNDESLIGA","Bundesliga"),("SERIEA","Serie A"),("LIGUE1","Ligue 1"),("EKSTRAKLASA","Ekstraklasa"),("UCL","Champions League"),("UEL","Europa League"),("UECL","Conference League")]
@@ -170,6 +188,7 @@ def profile_data(user, page=1, competition=None, result=None, round_id=None):
         data = progress(f"MASTERY_{code}", MASTERY_TIERS)
         data["rank_label"] = data["tier"] if data["tier"] != "—" else "BRAK RANGI"
         mastery.append({"code": code, "name": name, "data": data})
+    mastery.sort(key=lambda item: (-item["data"]["progress"], item["name"].casefold()))
     streak_state = states.get("STREAK")
     streaks = streak_state.context_data if streak_state else {"current_streak":0, "max_streak":0}
     return {"statistics":calculate_player_statistics(user), "streaks":streaks, "performance":current_performance(user), "round_history_preview":round_history_summaries(user)[:5], "achievements":[item for item in unlocks if item.unlocked], "trophies":trophy_rows, "paths":paths, "mastery":mastery}

@@ -1,0 +1,33 @@
+/* Shared resolved state vocabulary. These selectors never affect live inputs. */
+#prediction-form.card-view>.resolved-card{display:none}
+[data-resolved-state="hit"],[data-resolved-state="miss"]{color:#18201d!important;border-color:transparent!important;opacity:1!important;box-shadow:none!important}
+[data-resolved-state="hit"]{background:#c2f34b!important}
+[data-resolved-state="miss"]{background:#ed8175!important}
+[data-resolved-state="covered"]{background:rgba(194,243,75,.25)!important;border-color:#9ab566!important;color:#31401f!important;opacity:.72!important;box-shadow:none!important}
+.resolved-score{font-weight:900;font-variant-numeric:tabular-nums;white-space:nowrap;color:#18201d}
+.demo-teams:has(.resolved-score){grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)}
+.demo-teams .resolved-score{font-size:24px;letter-spacing:-.04em}
+.resolved-card{display:grid;grid-template-columns:130px minmax(260px,1fr) 112px 72px 115px 105px;align-items:center;gap:8px 10px;padding:8px 12px;min-height:56px;margin:0 0 5px;border:1px solid #d8dfd9;border-radius:7px;background:linear-gradient(90deg,#f7f9f5,#fff 24%);box-shadow:inset 0 1px #fff,0 1px 1px #18201d08;color:#18201d;font-family:Inter,"Segoe UI",Arial,sans-serif}
+.resolved-matchup{display:flex;align-items:center;justify-content:center;gap:8px;min-width:0}
+.resolved-team{display:flex;align-items:center;gap:5px;min-width:0;flex:1;font-size:14.3px;font-weight:800}
+.resolved-team:last-child{justify-content:flex-end;text-align:right}
+.resolved-team strong{overflow-wrap:anywhere;min-width:0}
+.resolved-matchup .resolved-score{font-size:14.3px}
+.resolved-picks{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.resolved-picks button{height:36px;padding:0;border:1px solid #d9e0d7;border-radius:6px;background:#f7f9f5;color:#899187;font:800 14px Inter,"Segoe UI",Arial,sans-serif;opacity:1}
+.resolved-goals{display:flex;align-items:center;justify-content:center;gap:5px;min-height:36px;border:1px solid #d9e0d7;border-radius:6px;background:#f7f9f5;font-size:13px;font-weight:850;white-space:nowrap}
+.resolved-ball{width:16px;height:16px;flex-shrink:0}
+.resolved-reward{grid-column:6;display:flex;align-items:center;justify-content:flex-end;gap:8px;white-space:nowrap}
+.resolved-gm-seal{position:relative;display:inline-grid;place-items:center;width:28px;height:28px;flex:0 0 28px;border:1px solid #8ab83b;border-radius:50%;background:radial-gradient(circle at 35% 28%,#344329,#18201d 68%);color:#c2f34b;font-size:8px;font-weight:950;letter-spacing:.08em;box-shadow:inset 0 0 0 3px #c2f34b12}
+.resolved-gm-seal::before{content:"✦";position:absolute;top:-5px;right:-3px;display:grid;place-items:center;width:12px;height:12px;border-radius:50%;background:#c2f34b;color:#18201d;font-size:7px}
+.resolved-power{padding:9px 6px;border:1px solid #71923f;border-radius:6px;background:#18201d;color:#c2f34b;font-size:10px;font-weight:850;text-align:center;box-shadow:inset 0 -2px #93bb38,0 0 6px #c2f34b18}
+.resolved-total{text-align:center;font-size:13px;font-weight:850}
+.resolved-original{grid-column:2/-1;color:#65716b;font-size:10px}
+.resolved-card .current-league .meta{font-size:10px;color:#526158}
+.resolved-card .national-team-flag,.resolved-card .team-shirt{width:20px;height:22px;flex:0 0 20px;font-size:18px}
+.resolved-card .flag-asset{height:14px}
+.demo-reveal .resolved-earned{font-size:13px;letter-spacing:.03em;color:#18201d}
+@media(min-width:1000px){.resolved-card{grid-template-columns:130px minmax(260px,1fr) 70px 112px 72px 115px 105px}.resolved-card .current-league{grid-column:1}.resolved-card .resolved-matchup{grid-column:2}.resolved-card .resolved-picks{grid-column:4;margin-left:0}.resolved-card .resolved-goals{grid-column:5}.resolved-card .resolved-power{grid-column:6}.resolved-card .resolved-reward{grid-column:7}.resolved-card:not(:has(.resolved-power)){grid-template-columns:130px minmax(260px,1fr) 70px 112px 72px 105px}.resolved-card:not(:has(.resolved-power)) .resolved-reward{grid-column:6}}
+@media(min-width:701px) and (max-width:950px){.resolved-card:not(:has(.resolved-power)){grid-template-columns:minmax(150px,1fr) 112px 65px 105px}.resolved-card:not(:has(.resolved-power)) .resolved-reward{grid-column:4}}
+@media(max-width:950px){.resolved-card{grid-template-columns:minmax(220px,1fr) 112px 65px 100px 105px}.resolved-card .current-league{grid-column:1/-1;display:flex;justify-content:space-between;gap:8px}.resolved-reward{grid-column:5}.resolved-original{grid-column:1/-1}}
+@media(max-width:700px){.resolved-card{grid-template-columns:112px minmax(48px,1fr) minmax(70px,1fr);gap:8px 6px;padding:10px;border-radius:10px}.resolved-matchup{grid-column:1/-1;min-height:40px}.resolved-picks{grid-column:1;grid-row:3}.resolved-goals{grid-column:2;grid-row:3}.resolved-power{grid-column:3;grid-row:3}.resolved-reward{grid-column:1/-1;justify-content:flex-end;padding-top:7px;border-top:1px solid #dce4d5;min-height:30px}.resolved-matchup .resolved-score{font-size:15.4px}.resolved-team{font-size:15.4px}.resolved-goals:not([data-resolved-state]){font-size:10px}}

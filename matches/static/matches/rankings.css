@@ -1,0 +1,48 @@
+.ranking-experience{--ranking-lime:#c2f34b;padding:0 10px 18px}
+.ranking-head{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:12px 22px;border:1px solid #3c4938;border-radius:12px;background:radial-gradient(ellipse at 0 0,#b7f34b22,transparent 65%),linear-gradient(125deg,#202722,#111614);color:#fff;box-shadow:0 10px 28px #14211b12}
+.ranking-eyebrow{color:var(--ranking-lime);font-size:10px;font-weight:900;letter-spacing:.16em}
+.ranking-head h1{margin:2px 0 0;color:var(--ranking-lime);font-size:24px;font-weight:950;letter-spacing:-.04em}
+.ranking-head p{margin:0;color:#c3cdc5;font-size:13px;font-weight:700}
+.ranking-tabs{display:flex;gap:4px;padding:5px;border:1px solid #42503e;border-radius:9px;background:#0f1513}
+.ranking-tabs a{padding:11px 16px;border-radius:5px;color:#c3cdc5;font-size:11px;font-weight:900;letter-spacing:.06em;text-decoration:none}
+.ranking-tabs a[aria-current]{background:var(--ranking-lime);color:#15200d;box-shadow:inset 0 -3px #83ae2a}
+.ranking-tabs a:hover:not([aria-current]){background:#283424;color:#e6f5d4}
+.ranking-tabs a:focus-visible,.ranking-player a:focus-visible{outline:2px solid var(--ranking-lime);outline-offset:4px}
+.ranking-caption{margin:9px 4px 5px;color:#626e65;font-size:11px}
+.ranking-columns,.ranking-row{display:grid;grid-template-columns:58px minmax(0,1fr) repeat(3,74px) 88px;align-items:center;gap:14px}
+.ranking-columns{padding:8px 26px 12px;color:#586359;font-size:10px;font-weight:900;letter-spacing:.08em}
+.ranking-columns>span:nth-child(n+3){text-align:center}
+.ranking-experience .ranking-list{display:grid;gap:6px;padding:4px}
+.ranking-experience .core-rank-list .ranking-row.rank-frame{padding:7px 22px;margin:0;min-width:0;min-height:44px;border-width:1px;border-radius:6px;box-shadow:0 2px 5px #18201d12}
+/* Keep the shared materials, but confine decoration to a quiet perimeter. */
+.ranking-experience .ranking-row.rank-frame .rank-frame-effects{inset:0;opacity:.55;filter:none;mask:linear-gradient(#000 0 0) top/100% 5px no-repeat,linear-gradient(#000 0 0) bottom/100% 5px no-repeat,linear-gradient(#000 0 0) left/9px 100% no-repeat,linear-gradient(#000 0 0) right/9px 100% no-repeat}
+.ranking-experience .ranking-row.rank-frame::before,.ranking-experience .ranking-row.rank-frame::after{content:none}
+.ranking-row>:not(.rank-frame-effects){position:relative;z-index:2}
+.ranking-place{font-size:19px;letter-spacing:-.06em;font-variant-numeric:tabular-nums;color:#acb7ad}
+.ranking-row:nth-of-type(-n+3) .ranking-place{color:var(--ranking-lime)}
+.ranking-player{min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:4px 12px}
+.ranking-player a{width:fit-content;max-width:100%;overflow-wrap:anywhere;color:var(--ranking-lime);font-size:15px;font-weight:850;text-decoration:none;line-height:1.2}
+.ranking-player a:hover{text-decoration:underline;text-underline-offset:4px}
+.ranking-tier{display:flex;align-items:center;gap:8px;color:var(--metal);font-size:9px;font-weight:900;letter-spacing:.12em}
+.ranking-you{padding:1px 5px;border:1px solid #c2f34b66;border-radius:3px;color:var(--ranking-lime);font-size:8px}
+.ranking-stat{text-align:center;font-size:15px;font-weight:800;color:#e8eee8;font-variant-numeric:tabular-nums}
+.ranking-stat small{display:none}
+.ranking-total{display:flex;align-items:baseline;justify-content:center;gap:5px;padding:5px 6px;border:1px solid #c2f34b35;border-radius:5px;background:#c2f34b0b;color:var(--ranking-lime);font-size:19px;line-height:1;font-variant-numeric:tabular-nums}
+.ranking-total small{order:1;font-size:8px;letter-spacing:.04em}
+.ranking-current-label{margin:12px 0 -4px;color:#556445;font-size:10px;font-weight:900;letter-spacing:.12em}
+.ranking-empty{padding:32px;border:1px dashed #bbc4b7;border-radius:12px;color:#5b685b;text-align:center}
+@media(max-width:700px){
+  .ranking-experience{padding:0 4px 14px}
+  .ranking-head{display:grid;gap:20px;padding:22px 20px}
+  .ranking-head h1{font-size:29px}
+  .ranking-tabs{width:100%}.ranking-tabs a{flex:1;text-align:center;padding:10px 8px}
+  .ranking-columns{display:none}
+  .ranking-caption{line-height:1.6;margin:14px 4px}
+  .ranking-experience .core-rank-list .ranking-row.rank-frame{grid-template-columns:32px repeat(3,minmax(0,1fr)) 62px;gap:7px 8px;padding:10px 15px}
+  .ranking-place{grid-column:1;grid-row:1;font-size:20px}
+  .ranking-player{grid-column:2/5;grid-row:1;display:grid;gap:3px}.ranking-player a{font-size:15px}
+  .ranking-total{grid-column:5;grid-row:1;font-size:21px;padding:9px 3px;gap:3px}
+  .ranking-stat{grid-row:2;display:flex;align-items:baseline;gap:5px;font-size:14px;text-align:left}
+  .ranking-stat:nth-of-type(2){grid-column:2}.ranking-stat:nth-of-type(3){grid-column:3}.ranking-stat:nth-of-type(4){grid-column:4/6}
+  .ranking-stat small{display:inline;color:#9ca99e;font-size:8px;letter-spacing:.04em}
+}

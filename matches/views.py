@@ -14,16 +14,24 @@ from .services.match_cards import prepare_settled_match
 from .services.lifecycle import get_current_round, get_previous_completed_round, get_future_round_for_current_draft
 from .services.rankings import month_ranking, round_ranking, season_ranking, top_with_current
 from .services.profile import profile_data, public_history, round_history_summaries
+from .services.prediction_ui import chip_display_label
 from django.contrib.auth import get_user_model
 
 
 def home(request):
+    from .services.homepage_demo import homepage_demo
+    demo_matches, demo_facts = homepage_demo()
     active_round = Round.objects.filter(is_active=True).order_by("id").first()
     completed_round = get_previous_completed_round()
     reference_date = completed_round.ranking_date if completed_round else timezone.localdate()
     season = completed_round.match50_season if completed_round else Match50Season.objects.filter(is_active=True).first()
     return render(request, "matches/home.html", {
         "active_round": active_round,
+        "demo_matches": demo_matches,
+        "demo_facts": demo_facts,
+        "demo_banker_label": chip_display_label("BANKER"),
+        "demo_double_label": chip_display_label("DOUBLE_PICK"),
+        "demo_locked_chip_labels": [chip_display_label(code) for code in ("CHANGE_MIND", "SWAP", "GOOOOOOOOAL")],
         "round_top": round_ranking(completed_round)[:5],
         "month_top": month_ranking(reference_date.year, reference_date.month)[:5],
         "season_top": season_ranking(season)[:5],
@@ -49,6 +57,15 @@ def rankings(request):
         entries = round_ranking(selected_round)
         title = selected_round.name if selected_round else "Brak aktywnej rundy"
     top, current_entry = top_with_current(entries, request.user if request.user.is_authenticated else None)
+    from dataclasses import asdict
+    from .services.profile import highest_core_ranks
+    visible_entries = [*top, *([current_entry] if current_entry else [])]
+    ranks = highest_core_ranks([entry.user_id for entry in visible_entries])
+    def framed(entry):
+        tier = ranks[entry.user_id]
+        return {**asdict(entry), "tier": tier, "rank_label": "BRAK RANGI" if tier == "NONE" else tier}
+    top = [framed(entry) for entry in top]
+    current_entry = framed(current_entry) if current_entry else None
     return render(request, "matches/rankings.html", {"ranking_type": ranking_type, "title": title, "entries": top, "current_entry": current_entry, "rounds": Round.objects.order_by("-ranking_date", "-id")})
 
 
@@ -373,7 +390,7 @@ def typy(request):
                 elif selected == ["2"]:
                     goal_team = match.away_team
                 else:
-                    return render_typy(request, active_round, matches, existing, request.POST, chip_error="GOOOOOOOOAL! wymaga typu 1 albo 2 — remis nie wybiera drużyny.")
+                    return render_typy(request, active_round, matches, existing, request.POST, chip_error=f"{chip_display_label(chip)} wymaga typu 1 albo 2 — remis nie wybiera drużyny.")
             replacement = None
             if chip == ChipAssignment.Chip.SWAP:
                 replacement = draft_loser_for_winner(match)
@@ -472,11 +489,11 @@ def render_typy(request, active_round, matches, existing, form_data=None, needs_
             match.saved_outcomes = form_data.getlist(f"result_{match.id}") if match.saved_chip == ChipAssignment.Chip.DOUBLE_PICK else []
             match.saved_goal_team = form_data.get(f"goal_team_{match.id}", match.saved_goal_team)
     chip_options = [
-        ("BANKER", "BANKER", "Trafiony typ daje +2 bonusu. Pudło: -1."),
-        ("DOUBLE_PICK", "DOUBLE PICK", "Możesz wskazać dwa wyniki w tym meczu."),
-        ("CHANGE_MIND", "VAR", "Możesz zmienić typ do 60 minut po rozpoczęciu meczu."),
-        ("SWAP", "SWAP", "Zamień ten mecz na mecz, który przegrał z nim w Drafcie."),
-        ("GOOOOOOOOAL", "GOOOOOOOOAL!", "Za każde 2 gole wybranej drużyny otrzymasz +1 bonusu."),
+        ("BANKER", chip_display_label("BANKER"), "Trafiony typ daje +2 bonusu. Pudło: -1."),
+        ("DOUBLE_PICK", chip_display_label("DOUBLE_PICK"), "Możesz wskazać dwa wyniki w tym meczu."),
+        ("CHANGE_MIND", chip_display_label("CHANGE_MIND"), "Możesz zmienić typ do 60 minut po rozpoczęciu meczu."),
+        ("SWAP", chip_display_label("SWAP"), "Zamień ten mecz na mecz, który przegrał z nim w Drafcie."),
+        ("GOOOOOOOOAL", chip_display_label("GOOOOOOOOAL"), "Za każde 2 gole wybranej drużyny otrzymasz +1 bonusu."),
     ]
     score = UserRoundScore.objects.filter(user=request.user, round=active_round).first() if request.user.is_authenticated else None
     score_by_match = {item["match"]: item for item in score.breakdown} if score else {}
@@ -499,4 +516,13 @@ def render_typy(request, active_round, matches, existing, form_data=None, needs_
     has_editable_matches = any(match.prediction_ui for match in matches)
     from .services.prediction_ui import presentation_state
     ui = presentation_state(request.user, active_round, matches)
-    return render(request, "matches/obstaw.html", {"matches": matches, "active_round": active_round, "needs_confirmation": needs_confirmation, "chip_options": chip_options, "chip_error": chip_error, "active_modifier": active_round.active_global_modifier, "round_score": score, "chip_count": sum(bool(match.saved_chip) for match in matches), "round_is_closed": round_is_closed, "has_editable_matches": has_editable_matches, "prediction_ui": ui})
+    future_draft_update_at = None
+    if getattr(active_round, "is_future_preview", False):
+        future_draft = Draft.objects.filter(is_active=True, next_round=active_round).first()
+        if future_draft:
+            now = timezone.now()
+            draft_ends_at = future_draft.starts_at + timedelta(days=6)
+            if now < draft_ends_at:
+                current_day = min(max((now - future_draft.starts_at).days + 1, 1), 6)
+                future_draft_update_at = future_draft.starts_at + timedelta(days=current_day)
+    return render(request, "matches/obstaw.html", {"matches": matches, "active_round": active_round, "needs_confirmation": needs_confirmation, "chip_options": chip_options, "chip_error": chip_error, "active_modifier": active_round.active_global_modifier, "round_score": score, "chip_count": sum(bool(match.saved_chip) for match in matches), "round_is_closed": round_is_closed, "has_editable_matches": has_editable_matches, "prediction_ui": ui, "future_draft_update_at": future_draft_update_at})

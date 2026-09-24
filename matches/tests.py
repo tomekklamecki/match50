@@ -331,6 +331,33 @@ class StageThreeChipTests(TestCase):
 
 
 class FinishedMatchCardTests(TestCase):
+    def test_resolved_reward_badge_only_for_earned_modifier_bonus(self):
+        from django.template.loader import render_to_string
+        from matches.services.match_cards import prepare_settled_match
+        match = self.match('Home', 'Away')
+        prediction = Prediction.objects.create(user=self.user, match=match, predicted_result='1', total_goals=4)
+        self.finish(match, 3, 1)
+        for bonus in (0, 1):
+            prepare_settled_match(match, prediction=prediction, score_info={
+                'standard_correct': True, 'goal_correct': True,
+                'typy': 1, 'gole': 1, 'bonus': bonus, 'modifier_bonus': bonus,
+            })
+            html = render_to_string('matches/_resolved_prediction_card.html', {'match': match})
+            self.assertEqual('class="resolved-gm-seal"' in html, bool(bonus))
+            self.assertNotIn('resolved-modifier', html)
+            self.assertIn(f'+{2 + bonus} PKT', html)
+            self.assertIn('class="resolved-ball"', html)
+
+    def test_losing_double_pick_marks_both_selected_outcomes_red(self):
+        match = self.match('Home', 'Away')
+        ChipAssignment.objects.create(user=self.user, round=self.round, chip='DOUBLE_PICK', match=match, outcomes=['1', 'X'])
+        Prediction.objects.create(user=self.user, match=match, predicted_result='1')
+        self.finish(match, 0, 2)
+        recalculate_user_round_score(self.user, self.round)
+        response = self.client.get(reverse('typy'))
+        self.assertContains(response, 'data-resolved-state="miss"', count=2)
+        self.assertNotContains(response, 'data-resolved-state="covered"')
+
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="history", password="secret")
         self.round = Round.objects.create(name="History", is_active=True)
@@ -356,8 +383,8 @@ class FinishedMatchCardTests(TestCase):
         self.assertContains(response, "Alpha — Beta")
         self.assertContains(response, "2:1")
         self.assertContains(response, 'data-current-state="finished"')
-        self.assertContains(response, 'current-stat hit')
-        self.assertContains(response, 'current-stat miss')
+        self.assertContains(response, 'data-resolved-state="hit"')
+        self.assertContains(response, 'data-resolved-state="miss"')
         score = self.user.round_scores.get(round=self.round)
         self.assertEqual(score.total_points, 1)
 
@@ -368,7 +395,8 @@ class FinishedMatchCardTests(TestCase):
         recalculate_user_round_score(self.user, self.round)
 
         response = self.client.get(reverse("typy"))
-        self.assertContains(response, '<div class="current-stat neutral"><span>GOLE</span><strong>—</strong></div>', html=True)
+        self.assertContains(response, 'class="resolved-goals"')
+        self.assertNotContains(response, 'data-resolved-state="miss"')
 
     def test_prediction_toolbar_follows_existing_match_editability(self):
         settled = self.match("Settled Home", "Settled Away")
@@ -440,7 +468,8 @@ class FinishedMatchCardTests(TestCase):
         response = self.client.get(reverse("typy"))
         self.assertContains(response, "DOUBLE PICK")
         self.assertContains(response, "1 + X")
-        self.assertContains(response, 'current-stat hit')
+        self.assertContains(response, 'data-resolved-state="hit"')
+        self.assertContains(response, 'data-resolved-state="covered"')
 
     def test_finished_cards_keep_banker_change_mind_and_goal_chip_configuration(self):
         banker = self.match("Banker Home", "Banker Away")
@@ -457,9 +486,9 @@ class FinishedMatchCardTests(TestCase):
         response = self.client.get(reverse("typy"))
         self.assertContains(response, "BANKER")
         self.assertContains(response, "VAR")
-        self.assertContains(response, "GOOOOOOOOAL!")
+        self.assertContains(response, "GOOOOL!")
         self.assertContains(response, "Goal Home")
-        self.assertContains(response, 'id="chip-progress"')
+        self.assertContains(response, 'id="chips-progress"')
 
     def test_swap_card_uses_replacement_teams_result_and_scoring_state(self):
         original = self.match("Original Home", "Original Away")
@@ -481,7 +510,7 @@ class FinishedMatchCardTests(TestCase):
         self.assertContains(response, "Replacement Home — Replacement Away")
         self.assertContains(response, "3:1")
         self.assertContains(response, "Oryginalnie: Original Home — Original Away")
-        self.assertContains(response, 'class="current-score"><span>WYNIK</span><strong>3:1</strong></div>')
+        self.assertContains(response, 'class="resolved-score" aria-label="Wynik końcowy">3:1</strong>')
         score = self.user.round_scores.get(round=self.round)
         self.assertEqual((score.typy_points, score.gole_points, score.total_points), (1, 1, 2))
 
@@ -757,6 +786,10 @@ class FinalStageSixTests(TestCase):
         mastery = next(item["data"] for item in data["mastery"] if item["code"] == "EPL")
         self.assertEqual((mastery["progress"], mastery["next"], mastery["percent"]), (18, ("SILVER", 25), 72))
         self.assertEqual(len(data["mastery"]), 9)
+        self.assertEqual(
+            [item["code"] for item in data["mastery"]],
+            ["EPL", "BUNDESLIGA", "UCL", "UECL", "EKSTRAKLASA", "UEL", "LALIGA", "LIGUE1", "SERIEA"],
+        )
 
     def test_history_is_round_centric_and_keeps_unpredicted_slots_neutral(self):
         matches = [

@@ -1,0 +1,6 @@
+{% load prediction_labels %}<div data-rank="{{ item.data.tier }}" class="progress-row rank-frame{% if item.data.tier == 'GODLIKE' %} core-godlike{% endif %}">
+  <span class="rank-frame-effects" aria-hidden="true">{% include "matches/_rank_frame_motion.html" with data=item.data %}</span>
+  <div class="progress-head"><span class="mastery-name">{{ item.name|league_label }}</span><span>{{ item.data.rank_label }}</span></div>
+  <div class="progress-meta"><span>{{ item.data.progress }}</span><span>{% if item.data.next %}{{ item.data.next.1 }} do {{ item.data.next.0 }}{% else %}UKOŃCZONE{% endif %}</span></div>
+  <div class="progress-track"><i style="width:{{ item.data.percent }}%"></i></div>
+</div>

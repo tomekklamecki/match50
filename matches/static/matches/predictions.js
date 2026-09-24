@@ -176,10 +176,17 @@
   function progress(current = visibleProgressState()) {
     if (!toolbar) return;
     const {values, predicted, typyComplete} = current;
+    const summary = document.querySelector('.prediction-summary');
+    const availableProgress = document.getElementById('available-progress');
     const predictionProgress = document.getElementById('prediction-progress');
+    if (availableProgress) {
+      availableProgress.hidden = !state.future;
+      availableProgress.textContent = state.future ? `DOSTĘPNE ${values.length}/${state.total}` : '';
+    }
+    summary?.classList.toggle('is-future', state.future);
     predictionProgress.textContent = state.future
-      ? `Dostępne: ${values.length}/${state.total} · Wytypowane: ${predicted}/${values.length}`
-      : `Wytypowane: ${predicted} / ${state.total}`;
+      ? `WYTYPOWANE ${predicted}/${values.length}`
+      : `WYTYPOWANE ${predicted}/${state.total}`;
     predictionProgress.classList.toggle('complete', typyComplete);
     predictionProgress.classList.toggle('incomplete', !typyComplete);
     const leagues = new Map();
@@ -207,20 +214,34 @@
       });
       return label;
     }));
-    const rules = values[0]?.chips || {};
-    document.getElementById('chip-progress').replaceChildren(...Object.entries(rules).map(([chip, r]) => {
-      const label = document.createElement('span'), used = values.find(s => s.chip === chip);
-      label.dataset.chip = chip;
-      label.textContent = `${used ? '✓' : '○'} ${r.label}`;
-      label.classList.toggle('used', !!used); label.title = used ? `Użyty: ${used.teams}` : 'Dostępny'; return label;
-    }));
-    const chipsCounter = document.getElementById('chips-counter');
-    if (chipsCounter) chipsCounter.textContent = `CHIPS ${values.filter(s => s.chip).length}/5`;
+    const usedChips = values.filter(s => s.chip).length;
+    const chipsProgress = document.getElementById('chips-progress');
+    if (chipsProgress) {
+      chipsProgress.textContent = `CHIPS ${usedChips}/5`;
+      chipsProgress.classList.toggle('complete', usedChips === 5);
+      chipsProgress.classList.toggle('incomplete', usedChips !== 5);
+    }
+  }
+
+  const futureDraftCountdown = document.getElementById('future-draft-countdown');
+  if (futureDraftCountdown) {
+    const updateFutureDraftCountdown = () => {
+      const remaining = new Date(futureDraftCountdown.dataset.closesAt).getTime() - Date.now();
+      if (remaining <= 0) { futureDraftCountdown.textContent = '00:00:00'; window.location.reload(); return; }
+      const hours = Math.floor(remaining / 3600000);
+      const minutes = Math.floor(remaining % 3600000 / 60000);
+      const seconds = Math.floor(remaining % 60000 / 1000);
+      futureDraftCountdown.textContent = [hours, minutes, seconds].map(value => String(value).padStart(2, '0')).join(':');
+    };
+    updateFutureDraftCountdown();
+    setInterval(updateFutureDraftCountdown, 1000);
   }
 
   function refresh() {
     const currentProgress = visibleProgressState();
     const goalsCount = currentProgress.goalsSelected;
+    const usedChipsCount = currentProgress.values.filter(value => value.chip).length;
+    const allChipsAssigned = usedChipsCount >= 5;
     const goalsProgress = document.getElementById('goals-progress');
     if (goalsProgress) {
       goalsProgress.textContent = `GOLE ${goalsCount}/10`;
@@ -266,23 +287,33 @@
         const goalLimitReached = goalsCount >= 10 && goals.value === '';
         trigger.disabled = trigger.dataset.goalEditable !== 'true' || goalLimitReached;
         trigger.title = goalLimitReached ? 'Limit GOLE 10/10 został wykorzystany.' : '';
-        trigger.textContent = view === 'list' ? (goals.value === '' ? '+ GOLE' : goals.value) : (goals.value === '' ? 'OBSTAW GOLE' : `GOLE: ${goals.value}`);
+        trigger.textContent = goals.value === '' ? (view === 'list' ? 'GOLE' : 'OBSTAW GOLE') : goals.value;
+        trigger.classList.toggle('has-goals', goals.value !== '');
         trigger.setAttribute('aria-label', goals.value === '' ? 'Obstaw gole' : `GOLE: ${goals.value}`);
       }
       card.querySelector('.teams').title = display?.teams || '';
       card.querySelector('.match-league').title = `${display?.league || ''} · ${display?.kickoff || ''}`;
       const compact = card.querySelector('.chip-picker');
-      compact.textContent = current ? slot(card).chips[current].label : 'CHIP';
-      compact.title = current ? slot(card).chips[current].label : 'Wybierz chip';
+      const chipsUnavailable = !current && allChipsAssigned;
+      compact.textContent = current ? slot(card).chips[current].label : chipsUnavailable ? '5/5 CHIPÓW' : '+ CHIP';
+      compact.title = current ? slot(card).chips[current].label : chipsUnavailable ? 'Wszystkie chipy zostały wykorzystane' : 'Wybierz chip';
+      compact.disabled = chipsUnavailable;
+      compact.classList.toggle('chip-unavailable', chipsUnavailable);
       if (pendingChips.has(card)) {
         compact.textContent = `${slot(card).chips[pendingChips.get(card).chip].label} · wybierz ${rules.limit}`;
         compact.title = 'Wybierz wyniki w wierszu. Chip nie jest jeszcze zapisany. Kliknij ponownie, aby anulować.';
       }
       const error = incomplete(card), changed = isDirty(card), status = card.querySelector('.row-status');
-      status.textContent = error ? '!' : changed ? '•' : picks.length ? '✓' : '○';
+      status.textContent = error ? '!' : '';
       status.title = error || (changed ? 'Niezapisane zmiany' : picks.length ? 'Zapisany typ' : 'Brak typu');
       status.setAttribute('aria-label', status.title);
+      status.setAttribute('aria-hidden', String(!error));
       status.classList.toggle('incomplete', !!error);
+      status.classList.toggle('dirty', !error && changed);
+      status.classList.toggle('complete', !error && !changed && picks.length > 0);
+      status.classList.toggle('empty', !error && !changed && !picks.length);
+      card.classList.toggle('has-prediction', picks.length > 0);
+      card.classList.toggle('is-dirty', changed);
       if (!error && card.classList.contains('needs-attention')) validate(card);
     });
     // Eligibility comes from the server; counts and completion reflect the

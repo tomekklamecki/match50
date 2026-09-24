@@ -9,4 +9,5 @@
     {% for group in history %}<section class="round-summary card"><div class="m">KOLEJKA · {{ group.starts_at|date:"d.m.Y" }}—{{ group.ends_at|date:"d.m.Y" }}</div><strong>TYPY {{ group.score.typy_points|default:0 }} · GOLE {{ group.score.gole_points|default:0 }} · BONUSY {{ group.score.bonus_points|default:0 }} · TOTAL {{ group.score.total_points|default:0 }}{% if group.rank %} · MIEJSCE #{{ group.rank }}{% endif %}</strong>{% for match in group.slots %}{% include "matches/_current_match_row.html" %}{% endfor %}</section>{% empty %}<p>Brak wyników spełniających wybrane filtry.</p>{% endfor %}
   {% else %}<p class="profile-empty">Nie masz jeszcze kolejek do wyświetlenia.</p>{% endif %}
 </section>
+<link rel="stylesheet" href="{% static 'matches/resolved-predictions.css' %}?v=resolved-grid-fix-16">
 {% endblock %}
